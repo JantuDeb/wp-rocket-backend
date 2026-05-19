@@ -1,0 +1,27 @@
+{
+  "name": "wp-rocket-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@fastify/formbody": "^8.0.2",
+    "cheerio": "^1.2.0",
+    "fastify": "^5.3.3",
+    "penthouse": "^2.3.3",
+    "puppeteer-core": "^25.0.4",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.19",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  }
+}

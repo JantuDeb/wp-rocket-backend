@@ -1,0 +1,16 @@
+{
+  "plugins": {},
+  "scripts": {
+    "analytics": {
+      "google-analytics": {
+        "title": "Google Analytics",
+        "exclusions": ["google-analytics.com/analytics.js", "googletagmanager.com/gtag/js"],
+        "type": "script",
+        "category": "analytics",
+        "id": "script:google-analytics",
+        "is_default": 1,
+        "created_at": 1734096382
+      }
+    }
+  }
+}

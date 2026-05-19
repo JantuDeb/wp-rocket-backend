@@ -1,0 +1,18 @@
+{
+  "rucss_inline_atts_exclusions": [],
+  "rucss_inline_content_exclusions": [],
+  "defer_js_inline_exclusions": [],
+  "defer_js_external_exclusions": [],
+  "delay_js_exclusions": [],
+  "js_minify_external": [],
+  "cache_ignored_parameters": [],
+  "preload_exclusions": [],
+  "exclude_js_files": [],
+  "staging_domains": [],
+  "lazy_rendering_exclusions": [],
+  "host_fonts": [],
+  "preload_fonts_exclusions": [],
+  "preconnect_external_domains_exclusions": [],
+  "mixpanel_tracked_settings": [],
+  "rocket_insights_add_homepage_expiry_interval": 266
+}

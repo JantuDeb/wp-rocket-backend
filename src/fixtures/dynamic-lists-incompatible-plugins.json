@@ -1,0 +1,14 @@
+{
+  "": [
+    {
+      "slug": "wp-super-cache",
+      "file": "wp-super-cache/wp-cache.php"
+    }
+  ],
+  "minify_css||minify_js": [
+    {
+      "slug": "fast-velocity-minify",
+      "file": "fast-velocity-minify/fvm.php"
+    }
+  ]
+}

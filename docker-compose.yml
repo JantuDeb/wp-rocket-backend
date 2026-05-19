@@ -1,0 +1,10 @@
+services:
+  backend:
+    build: .
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      JOB_COMPLETE_AFTER_MS: 1000
+      CPCSS_ALLOW_PRIVATE_NETWORKS: "true"
+    ports:
+      - "8080:8080"
