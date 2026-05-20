@@ -1,22 +1,31 @@
 import type { FastifyInstance } from "fastify";
 import type { CpcssStatusResponse } from "../../contracts/cpcss.js";
 import { env } from "../../config/env.js";
+import type { JobProducer } from "../../queues/producers.js";
 import { generateCriticalCss } from "../../services/css/critical-css.js";
-import type { MemoryJobStore } from "../../storage/memory-job-store.js";
+import type { JobStore } from "../../storage/job-store.js";
 import { requestData } from "./request.js";
 
-export async function cpcssRoutes(app: FastifyInstance, store: MemoryJobStore): Promise<void> {
+export async function cpcssRoutes(
+  app: FastifyInstance,
+  store: JobStore,
+  producer?: JobProducer,
+): Promise<void> {
   app.post("/api/job/", async (request) => {
     const body = requestData(request);
-    const job = store.create<CpcssStatusResponse>("cpcss", body, pendingResponse());
+    const job = await store.create<CpcssStatusResponse>("cpcss", body, pendingResponse());
     job.completeAfterMs = Number.MAX_SAFE_INTEGER;
 
-    const run = runCpcssJob(store, job.id, body).catch((error: unknown) => {
-      app.log.error({ error, jobId: job.id }, "Critical CSS job failed unexpectedly");
-    });
+    if (producer) {
+      await producer.enqueue("cpcss", { jobId: job.id, input: body });
+    } else {
+      const run = runCpcssJob(store, job.id, body).catch((error: unknown) => {
+        app.log.error({ error, jobId: job.id }, "Critical CSS job failed unexpectedly");
+      });
 
-    if (env.NODE_ENV === "test") {
-      await run;
+      if (env.NODE_ENV === "test") {
+        await run;
+      }
     }
 
     return {
@@ -29,7 +38,7 @@ export async function cpcssRoutes(app: FastifyInstance, store: MemoryJobStore): 
 
   app.get("/api/job/:jobId/", async (request) => {
     const params = request.params as { jobId: string };
-    const job = store.get<CpcssStatusResponse>(params.jobId);
+    const job = await store.get<CpcssStatusResponse>(params.jobId);
 
     if (!job) {
       return {
@@ -58,8 +67,8 @@ export async function cpcssRoutes(app: FastifyInstance, store: MemoryJobStore): 
   });
 }
 
-async function runCpcssJob(
-  store: MemoryJobStore,
+export async function runCpcssJob(
+  store: JobStore,
   jobId: string,
   body: Record<string, unknown>,
 ): Promise<void> {
@@ -70,7 +79,7 @@ async function runCpcssJob(
       nofontface: toBoolean(body.nofontface),
     });
 
-    store.complete<CpcssStatusResponse>(jobId, {
+    await store.complete<CpcssStatusResponse>(jobId, {
       status: 200,
       data: {
         state: "complete",
@@ -80,7 +89,7 @@ async function runCpcssJob(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to generate critical CSS";
 
-    store.fail<CpcssStatusResponse>(jobId, failedResponse(message), message);
+    await store.fail<CpcssStatusResponse>(jobId, failedResponse(message), message);
   }
 }
 

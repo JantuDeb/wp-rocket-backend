@@ -60,5 +60,41 @@ describe("Performance endpoints", () => {
         },
       },
     });
+    expect(status.json().report).toBeUndefined();
+  });
+
+  it("exposes an additive granular JSON report without changing the WP Rocket status shape", async () => {
+    app = await testApp();
+
+    const add = await app.inject({
+      method: "POST",
+      url: "/performance/",
+      payload: {
+        url: "https://example.com",
+        email: "customer@example.com",
+      },
+    });
+    const uuid = add.json().uuid;
+    const report = await app.inject({
+      method: "GET",
+      url: `/reports/${uuid}`,
+    });
+
+    expect(report.statusCode).toBe(200);
+    expect(report.json()).toMatchObject({
+      uuid,
+      url: "https://example.com",
+      metrics: {
+        performance_score: expect.any(Number),
+        largest_contentful_paint: { value: expect.any(Number) },
+        total_blocking_time: { value: expect.any(Number) },
+        cumulative_layout_shift: { value: expect.any(Number) },
+        time_to_first_byte: { value: expect.any(Number) },
+      },
+      issues: expect.any(Array),
+      resources: expect.any(Array),
+      dom_evidence: expect.any(Array),
+      source_groups: expect.any(Array),
+    });
   });
 });

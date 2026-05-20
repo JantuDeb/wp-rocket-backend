@@ -8,3 +8,76 @@ export type PerformanceMetrics = {
   cumulative_layout_shift: { value: number };
   time_to_first_byte: { value: number };
 };
+
+export type PerformanceSourceAttribution = {
+  kind: "plugin" | "theme" | "wordpress-core" | "uploads" | "first-party" | "third-party" | "unknown";
+  slug?: string;
+  host?: string;
+};
+
+export type PerformanceResource = {
+  url: string;
+  type: string;
+  duration: number;
+  transferSize: number;
+  renderBlockingStatus?: string;
+  source: PerformanceSourceAttribution;
+};
+
+export type PerformanceDomEvidence = {
+  kind: "lcp" | "layout_shift";
+  selector: string;
+  tag: string;
+  text?: string;
+  src?: string;
+  value?: number;
+};
+
+export type PerformanceIssue = {
+  id: string;
+  type:
+    | "slow_ttfb"
+    | "slow_lcp"
+    | "high_tbt"
+    | "layout_shift"
+    | "render_blocking_resource"
+    | "large_javascript"
+    | "large_stylesheet"
+    | "third_party_impact";
+  severity: "low" | "medium" | "high";
+  metric: "ttfb" | "lcp" | "tbt" | "cls" | "network";
+  title: string;
+  description: string;
+  recommendation: string;
+  evidence: PerformanceResource[];
+  dom_evidence?: PerformanceDomEvidence[];
+};
+
+export type PerformanceSourceGroup = {
+  source: PerformanceSourceAttribution;
+  resources_count: number;
+  total_duration: number;
+  transfer_size: number;
+  issue_ids: string[];
+};
+
+export type PerformanceReport = {
+  uuid: string;
+  url: string;
+  generated_at: string;
+  metrics: PerformanceMetrics;
+  issues: PerformanceIssue[];
+  resources: PerformanceResource[];
+  dom_evidence: PerformanceDomEvidence[];
+  source_groups: PerformanceSourceGroup[];
+};
+
+export type PerformanceJobResult = {
+  uuid: string;
+  status: "completed" | "failed";
+  message?: string;
+  data: {
+    data: PerformanceMetrics;
+  };
+  report?: PerformanceReport;
+};

@@ -14,11 +14,13 @@ export type StoredJob<T = unknown> = {
   completeAfterMs: number;
 };
 
+export type MaybePromise<T> = T | Promise<T>;
+
 export interface JobStore {
-  create<T>(kind: JobKind, input: unknown, result: T): StoredJob<T>;
-  get<T = unknown>(id: string): StoredJob<T> | undefined;
-  complete<T>(id: string, result: T): StoredJob<T> | undefined;
-  fail<T>(id: string, result: T, error?: string): StoredJob<T> | undefined;
+  create<T>(kind: JobKind, input: unknown, result: T): MaybePromise<StoredJob<T>>;
+  get<T = unknown>(id: string): MaybePromise<StoredJob<T> | undefined>;
+  complete<T>(id: string, result: T): MaybePromise<StoredJob<T> | undefined>;
+  fail<T>(id: string, result: T, error?: string): MaybePromise<StoredJob<T> | undefined>;
 }
 
 export function createJobId(kind: JobKind): string {
