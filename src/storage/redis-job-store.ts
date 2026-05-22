@@ -58,6 +58,39 @@ export class RedisJobStore implements JobStore {
     return jobs.filter((job): job is StoredJob => Boolean(job));
   }
 
+  async deleteBefore(options: { kind?: JobKind; before: number; dryRun?: boolean }): Promise<{ deleted: number; matched: number }> {
+    const ids = await this.redis.zrangebyscore(this.indexKey(options.kind), "-inf", options.before - 1);
+
+    if (options.dryRun || ids.length === 0) {
+      return {
+        deleted: 0,
+        matched: ids.length,
+      };
+    }
+
+    const pipeline = this.redis.multi();
+
+    for (const id of ids) {
+      pipeline.del(this.key(id));
+      pipeline.zrem(this.indexKey(), id);
+
+      if (options.kind) {
+        pipeline.zrem(this.indexKey(options.kind), id);
+      } else {
+        for (const kind of jobKinds) {
+          pipeline.zrem(this.indexKey(kind), id);
+        }
+      }
+    }
+
+    await pipeline.exec();
+
+    return {
+      deleted: ids.length,
+      matched: ids.length,
+    };
+  }
+
   async markPending<T = unknown>(id: string): Promise<StoredJob<T> | undefined> {
     const job = await this.get<T>(id);
 
@@ -129,3 +162,5 @@ export class RedisJobStore implements JobStore {
     return kind ? `${this.keyPrefix}:index:${kind}` : `${this.keyPrefix}:index`;
   }
 }
+
+const jobKinds: JobKind[] = ["rucss", "performance_hints", "cpcss", "performance"];

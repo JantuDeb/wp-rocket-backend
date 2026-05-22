@@ -49,6 +49,23 @@ export class MemoryJobStore implements JobStore {
       .slice(offset, offset + limit);
   }
 
+  deleteBefore(options: { kind?: JobKind; before: number; dryRun?: boolean }): { deleted: number; matched: number } {
+    const matched = [...this.jobs.values()]
+      .filter((job) => !options.kind || job.kind === options.kind)
+      .filter((job) => job.createdAt < options.before);
+
+    if (!options.dryRun) {
+      for (const job of matched) {
+        this.jobs.delete(job.id);
+      }
+    }
+
+    return {
+      deleted: options.dryRun ? 0 : matched.length,
+      matched: matched.length,
+    };
+  }
+
   markPending<T = unknown>(id: string): StoredJob<T> | undefined {
     const job = this.jobs.get(id) as StoredJob<T> | undefined;
 

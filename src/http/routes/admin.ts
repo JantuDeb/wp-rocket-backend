@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { env } from "../../config/env.js";
-import type { AdminJobDetail, AdminJobSummary, AdminQueueHealth } from "../../contracts/admin.js";
+import type { AdminJobDetail, AdminJobSummary, AdminMetrics, AdminQueueHealth } from "../../contracts/admin.js";
 import type { CpcssStatusResponse } from "../../contracts/cpcss.js";
 import type { PerformanceJobResult } from "../../contracts/performance.js";
 import type { RucssReturnValue } from "../../contracts/rucss.js";
@@ -202,6 +202,44 @@ export async function adminRoutes(
     };
   });
 
+  app.get("/admin/metrics", adminAuth, async () => {
+    const queues = producer
+      ? await producer.health()
+      : memoryQueueHealth(await store.list({ limit: 1000 }));
+
+    return buildAdminMetrics(await store.list({ limit: 1000 }), queues);
+  });
+
+  app.get("/metrics", adminAuth, async (_request, reply) => {
+    const queues = producer
+      ? await producer.health()
+      : memoryQueueHealth(await store.list({ limit: 1000 }));
+    const metrics = buildAdminMetrics(await store.list({ limit: 1000 }), queues);
+
+    return reply.type("text/plain; version=0.0.4; charset=utf-8").send(prometheusMetrics(metrics));
+  });
+
+  app.post("/admin/reports/cleanup", adminAuth, async (request, reply) => {
+    const body = requestData(request);
+    const retentionDays = readPositiveNumber(body.older_than_days) ?? env.REPORT_RETENTION_DAYS;
+    const dryRun = readBoolean(body.dry_run);
+    const before = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const result = await store.deleteBefore({
+      kind: "performance",
+      before,
+      dryRun,
+    });
+
+    return reply.code(200).send({
+      status: dryRun ? "preview" : "completed",
+      older_than_days: retentionDays,
+      before: new Date(before).toISOString(),
+      matched: result.matched,
+      deleted: result.deleted,
+      dry_run: dryRun,
+    });
+  });
+
   app.get("/dashboard", adminAuth, async (_request, reply) =>
     reply.type("text/html; charset=utf-8").send(dashboardHtml(Boolean(env.ADMIN_TOKEN))),
   );
@@ -384,6 +422,94 @@ function compareReports(reports: Array<{
   };
 }
 
+function buildAdminMetrics(jobs: StoredJob[], queues: AdminQueueHealth[]): AdminMetrics {
+  const reports = jobs
+    .filter((job) => job.kind === "performance")
+    .map((job) => (job.result as PerformanceJobResult | undefined)?.report)
+    .filter((report): report is NonNullable<PerformanceJobResult["report"]> => Boolean(report));
+  const auditDurations = reports
+    .map((report) => report.observability?.audit_duration_ms)
+    .filter((value): value is number => typeof value === "number");
+
+  return {
+    generated_at: new Date().toISOString(),
+    jobs: {
+      total: jobs.length,
+      by_state: {
+        pending: jobs.filter((job) => job.state === "pending").length,
+        completed: jobs.filter((job) => job.state === "completed").length,
+        failed: jobs.filter((job) => job.state === "failed").length,
+      },
+      by_kind: {
+        rucss: jobs.filter((job) => job.kind === "rucss").length,
+        performance_hints: jobs.filter((job) => job.kind === "performance_hints").length,
+        cpcss: jobs.filter((job) => job.kind === "cpcss").length,
+        performance: jobs.filter((job) => job.kind === "performance").length,
+      },
+    },
+    reports: {
+      total: reports.length,
+      average_score: average(reports.map((report) => report.metrics.performance_score)),
+      average_lcp_ms: average(reports.map((report) => report.metrics.largest_contentful_paint.value)),
+      average_tbt_ms: average(reports.map((report) => report.metrics.total_blocking_time.value)),
+      average_cls: average(reports.map((report) => report.metrics.cumulative_layout_shift.value)),
+      average_ttfb_ms: average(reports.map((report) => report.metrics.time_to_first_byte.value)),
+      issues_total: reports.reduce((total, report) => total + report.issues.length, 0),
+    },
+    observability: {
+      average_audit_duration_ms: average(auditDurations),
+      browser_errors: reports.filter((report) => report.observability?.browser_error).length,
+    },
+    queues,
+  };
+}
+
+function prometheusMetrics(metrics: AdminMetrics): string {
+  const lines = [
+    "# HELP wp_rocket_backend_jobs_total Stored jobs by state and kind.",
+    "# TYPE wp_rocket_backend_jobs_total gauge",
+    ...Object.entries(metrics.jobs.by_state).map(([state, count]) => `wp_rocket_backend_jobs_total{state="${state}"} ${count}`),
+    ...Object.entries(metrics.jobs.by_kind).map(([kind, count]) => `wp_rocket_backend_jobs_total{kind="${kind}"} ${count}`),
+    "# HELP wp_rocket_backend_reports_total Stored performance reports.",
+    "# TYPE wp_rocket_backend_reports_total gauge",
+    `wp_rocket_backend_reports_total ${metrics.reports.total}`,
+    "# HELP wp_rocket_backend_report_average_score Average performance score.",
+    "# TYPE wp_rocket_backend_report_average_score gauge",
+    `wp_rocket_backend_report_average_score ${metrics.reports.average_score ?? 0}`,
+    "# HELP wp_rocket_backend_report_average_lcp_ms Average LCP in milliseconds.",
+    "# TYPE wp_rocket_backend_report_average_lcp_ms gauge",
+    `wp_rocket_backend_report_average_lcp_ms ${metrics.reports.average_lcp_ms ?? 0}`,
+    "# HELP wp_rocket_backend_report_average_tbt_ms Average TBT in milliseconds.",
+    "# TYPE wp_rocket_backend_report_average_tbt_ms gauge",
+    `wp_rocket_backend_report_average_tbt_ms ${metrics.reports.average_tbt_ms ?? 0}`,
+    "# HELP wp_rocket_backend_report_average_cls Average CLS.",
+    "# TYPE wp_rocket_backend_report_average_cls gauge",
+    `wp_rocket_backend_report_average_cls ${metrics.reports.average_cls ?? 0}`,
+    "# HELP wp_rocket_backend_browser_errors_total Reports with browser audit errors.",
+    "# TYPE wp_rocket_backend_browser_errors_total gauge",
+    `wp_rocket_backend_browser_errors_total ${metrics.observability.browser_errors}`,
+    "# HELP wp_rocket_backend_queue_jobs Queue jobs by state.",
+    "# TYPE wp_rocket_backend_queue_jobs gauge",
+    ...metrics.queues.flatMap((queue) => [
+      `wp_rocket_backend_queue_jobs{queue="${queue.kind}",state="waiting"} ${queue.waiting}`,
+      `wp_rocket_backend_queue_jobs{queue="${queue.kind}",state="active"} ${queue.active}`,
+      `wp_rocket_backend_queue_jobs{queue="${queue.kind}",state="delayed"} ${queue.delayed}`,
+      `wp_rocket_backend_queue_jobs{queue="${queue.kind}",state="completed"} ${queue.completed}`,
+      `wp_rocket_backend_queue_jobs{queue="${queue.kind}",state="failed"} ${queue.failed}`,
+    ]),
+  ];
+
+  return `${lines.join("\n")}\n`;
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) {
+    return null;
+  }
+
+  return Number((values.reduce((total, value) => total + value, 0) / values.length).toFixed(3));
+}
+
 function normalizeComparableUrl(value: string): string {
   try {
     const url = new URL(value);
@@ -426,6 +552,16 @@ function readOffset(value: unknown): number {
   }
 
   return Math.trunc(parsed);
+}
+
+function readPositiveNumber(value: unknown): number | undefined {
+  const parsed = typeof value === "string" || typeof value === "number" ? Number(value) : undefined;
+
+  return parsed && Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : undefined;
+}
+
+function readBoolean(value: unknown): boolean {
+  return value === true || value === "true" || value === "1" || value === 1;
 }
 
 function dashboardHtml(requiresToken: boolean): string {

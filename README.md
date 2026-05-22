@@ -67,6 +67,13 @@ Redis/BullMQ integration coverage is opt-in so the default test suite does not r
 RUN_REDIS_TESTS=1 REDIS_URL=redis://127.0.0.1:6379 npm test -- tests/contract/redis-queue.integration.test.ts
 ```
 
+Browser-backed fixture and live WordPress smoke coverage are also opt-in:
+
+```sh
+RUN_BROWSER_TESTS=1 PERFORMANCE_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm test -- tests/contract/browser-lcp.fixture.test.ts
+RUN_LIVE_WP_TESTS=1 LIVE_WP_URL=https://cbsepath.com/ PERFORMANCE_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm test -- tests/contract/live-wordpress-performance.test.ts
+```
+
 ## WordPress Constants
 
 ```php
@@ -95,6 +102,9 @@ The backend implements contract-compatible responses for:
 - `GET /admin/reports`
 - `GET /admin/reports/history`
 - `GET /admin/queues`
+- `GET /admin/metrics`
+- `GET /metrics`
+- `POST /admin/reports/cleanup`
 - `GET /recommendations/`
 - `GET /api/v2/exclusions/list`
 - `GET /api/v2/delay-js-exclusions/list`
@@ -156,3 +166,7 @@ The dashboard uses these read/write admin endpoints:
 `/admin/jobs/:jobId` returns input, result, attempts, timestamps, and report availability. Retry requeues Redis/BullMQ jobs when Redis mode is active; in memory mode it reruns the local worker function. Cancel marks pending jobs as failed with a compatibility-shaped result for the original polling endpoint.
 
 `/admin/reports/history` returns completed reports for one URL and a latest-vs-previous metric delta when at least two reports exist.
+
+`/admin/metrics` returns JSON totals for jobs, reports, queues, and audit observability. `/metrics` exposes the same data in Prometheus text format. Both endpoints honor `ADMIN_TOKEN` when it is set.
+
+`POST /admin/reports/cleanup` deletes performance jobs older than `older_than_days` or `REPORT_RETENTION_DAYS`. Pass `dry_run=true` to preview matched/deleted counts without removing stored reports.

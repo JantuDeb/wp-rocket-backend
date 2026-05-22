@@ -298,6 +298,77 @@ describe("Admin dashboard endpoints", () => {
     });
   });
 
+  it("returns admin metrics in JSON and Prometheus formats", async () => {
+    app = await testApp();
+
+    await app.inject({
+      method: "POST",
+      url: "/performance/",
+      payload: {
+        url: "https://example.com/metrics",
+        email: "customer@example.com",
+      },
+    });
+
+    const json = await app.inject({
+      method: "GET",
+      url: "/admin/metrics",
+    });
+    const prometheus = await app.inject({
+      method: "GET",
+      url: "/metrics",
+    });
+
+    expect(json.statusCode).toBe(200);
+    expect(json.json()).toMatchObject({
+      jobs: {
+        total: expect.any(Number),
+        by_state: {
+          completed: expect.any(Number),
+        },
+      },
+      reports: {
+        total: 1,
+        average_score: expect.any(Number),
+      },
+      observability: {
+        average_audit_duration_ms: expect.any(Number),
+      },
+    });
+    expect(prometheus.statusCode).toBe(200);
+    expect(prometheus.body).toContain("wp_rocket_backend_reports_total 1");
+  });
+
+  it("previews report retention cleanup", async () => {
+    app = await testApp();
+
+    await app.inject({
+      method: "POST",
+      url: "/performance/",
+      payload: {
+        url: "https://example.com/cleanup",
+        email: "customer@example.com",
+      },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/reports/cleanup",
+      payload: {
+        older_than_days: 30,
+        dry_run: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: "preview",
+      older_than_days: 30,
+      matched: expect.any(Number),
+      deleted: 0,
+      dry_run: true,
+    });
+  });
+
   it("serves the dashboard html", async () => {
     app = await testApp();
 

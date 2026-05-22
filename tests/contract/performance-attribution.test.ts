@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { auditPerformance, attributionForResource, fakePerformanceReport } from "../../src/services/lighthouse/audit.js";
+import { auditPerformance, attributionForResource, fakePerformanceReport, preloadUrlsMatch } from "../../src/services/lighthouse/audit.js";
 
 describe("Performance resource attribution", () => {
   it("uses WordPress handle metadata when resource URLs match", () => {
@@ -99,5 +99,16 @@ describe("Performance resource attribution", () => {
       resource_count: expect.any(Number),
       issue_count: expect.any(Number),
     });
+  });
+
+  it("matches responsive preload candidates across CDN host rewrites", () => {
+    expect(preloadUrlsMatch(
+      "https://cdn.example.com/wp-content/uploads/hero-1200.jpg?fit=1200",
+      "https://example.com/wp-content/uploads/hero-1200.jpg?fit=1200",
+    )).toBe(true);
+    expect(preloadUrlsMatch(
+      "/wp-content/uploads/hero-800.jpg",
+      "https://example.com/wp-content/uploads/hero-800.jpg",
+    )).toBe(true);
   });
 });

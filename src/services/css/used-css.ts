@@ -208,7 +208,7 @@ function preservesCustomProperties(rule: Rule): boolean {
 function collectAnimationNames(rule: Rule, names: Set<string>): void {
   rule.walkDecls((decl) => {
     if (decl.prop === "animation-name") {
-      for (const name of decl.value.split(",")) {
+      for (const name of splitCommaList(decl.value)) {
         const trimmed = name.trim();
 
         if (trimmed && trimmed !== "none") {
@@ -219,8 +219,7 @@ function collectAnimationNames(rule: Rule, names: Set<string>): void {
     }
 
     if (decl.prop === "animation") {
-      const animationNames = decl.value
-        .split(",")
+      const animationNames = splitCommaList(decl.value)
         .map((animation) => animation.trim().split(/\s+/).find((part) => isAnimationNameToken(part)))
         .filter((name): name is string => Boolean(name));
 
@@ -284,6 +283,32 @@ function isAnimationNameToken(part: string | undefined): boolean {
   return !/^[\d.]+m?s$/.test(part) &&
     !/^[\d.]+$/.test(part) &&
     !/^(cubic-bezier|steps)\(/.test(part);
+}
+
+function splitCommaList(value: string): string[] {
+  const items: string[] = [];
+  let depth = 0;
+  let current = "";
+
+  for (const char of value) {
+    if (char === "(") {
+      depth += 1;
+    } else if (char === ")") {
+      depth = Math.max(0, depth - 1);
+    }
+
+    if (char === "," && depth === 0) {
+      items.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  items.push(current);
+
+  return items;
 }
 
 function mergeRanges(ranges: CssCoverageRange[]): CssCoverageRange[] {

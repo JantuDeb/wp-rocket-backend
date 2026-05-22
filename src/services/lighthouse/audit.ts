@@ -792,6 +792,21 @@ function issueIdForUrl(url: string): string {
   return Buffer.from(url).toString("base64url").slice(0, 16);
 }
 
+export function preloadUrlsMatch(left: string, right: string, base = "https://example.com/"): boolean {
+  try {
+    const leftUrl = new URL(left, base);
+    const rightUrl = new URL(right, base);
+
+    if (leftUrl.href === rightUrl.href) {
+      return true;
+    }
+
+    return leftUrl.pathname === rightUrl.pathname && leftUrl.search === rightUrl.search;
+  } catch {
+    return left === right;
+  }
+}
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1_000_000) {
     return `${(bytes / 1_000_000).toFixed(1)} MB`;

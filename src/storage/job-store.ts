@@ -22,6 +22,7 @@ export interface JobStore {
   create<T>(kind: JobKind, input: unknown, result: T): MaybePromise<StoredJob<T>>;
   get<T = unknown>(id: string): MaybePromise<StoredJob<T> | undefined>;
   list(options?: { kind?: JobKind; limit?: number; offset?: number }): MaybePromise<StoredJob[]>;
+  deleteBefore(options: { kind?: JobKind; before: number; dryRun?: boolean }): MaybePromise<{ deleted: number; matched: number }>;
   markPending<T = unknown>(id: string): MaybePromise<StoredJob<T> | undefined>;
   complete<T>(id: string, result: T): MaybePromise<StoredJob<T> | undefined>;
   fail<T>(id: string, result: T, error?: string): MaybePromise<StoredJob<T> | undefined>;

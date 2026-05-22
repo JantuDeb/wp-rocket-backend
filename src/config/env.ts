@@ -36,6 +36,7 @@ const envSchema = z.object({
   PERFORMANCE_DESKTOP_HEIGHT: z.coerce.number().int().positive().default(900),
   PERFORMANCE_ALLOW_PRIVATE_NETWORKS: z.coerce.boolean().default(false),
   PERFORMANCE_CHROMIUM_EXECUTABLE: z.string().optional(),
+  REPORT_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   ADMIN_TOKEN: z.string().optional(),
 });
 

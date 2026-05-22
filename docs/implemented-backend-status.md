@@ -88,6 +88,9 @@ The backend exposes a built-in operations surface:
 - `GET /admin/reports` lists completed performance reports with score, metrics, and issue counts.
 - `GET /admin/reports/history` returns report history and latest-vs-previous metric deltas for a URL.
 - `GET /admin/queues` returns queue health counts for waiting, active, delayed, completed, and failed jobs.
+- `GET /admin/metrics` returns JSON job/report/queue/observability totals.
+- `GET /metrics` exports Prometheus text metrics for jobs, reports, browser errors, and queues.
+- `POST /admin/reports/cleanup` deletes or previews deletion of retained performance reports older than `REPORT_RETENTION_DAYS` or an explicit `older_than_days` value.
 
 The dashboard includes job filtering/detail views, queue health, report/recommendation JSON detail, retry/cancel actions, and a report history view with metric deltas and compact trend bars. Memory and Redis storage both maintain enough job index data for these endpoints. Set `ADMIN_TOKEN` to require bearer-token authentication for `/dashboard` and `/admin/*`.
 
@@ -99,6 +102,8 @@ The suite covers:
 - admin job/report listing, filtering, queue health, retry/cancel endpoints, and the dashboard HTML shell
 - dashboard report history controls wired to the history API
 - opt-in Redis/BullMQ queue processing through real Redis with `RUN_REDIS_TESTS=1`
+- opt-in browser-backed LCP fixture coverage with `RUN_BROWSER_TESTS=1`
+- opt-in live WordPress performance smoke coverage against `LIVE_WP_URL`, defaulting to `https://cbsepath.com/`
 - additive report and report recommendation endpoints
 - LCP preload candidate report fields and recommendation mapping
 - external and inline WordPress handle attribution
@@ -117,6 +122,6 @@ npm test
 The largest remaining implementation gaps are:
 
 - CI wiring for the opt-in Redis/BullMQ integration test using a Redis service container
-- broader production RUCSS parity validation against a corpus of real themes/plugins
-- browser-level tests for responsive LCP preload detection across live `srcset`, `picture`, and CDN rewrite scenarios
-- richer long-term observability sinks, such as metrics export and alerting around worker/browser failure rates
+- broader production RUCSS parity validation against an expanded corpus of real themes/plugins
+- richer long-term observability sinks, such as alerting around worker/browser failure rates
+- dashboard controls for metrics and report retention cleanup, beyond the current admin APIs
