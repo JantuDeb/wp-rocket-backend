@@ -9,9 +9,11 @@ describe("Used CSS extractor", () => {
       "@media (min-width: 700px){.used{color:red}.unused-media{color:blue}}",
       "@supports (display:grid){@layer components{.safe-card{display:grid}.unused-layer{display:block}}}",
       "@font-face{font-family:Rocket;src:url(rocket.woff2)}",
+      "@property --angle{syntax:'<angle>';initial-value:0deg;inherits:false}",
       "@keyframes fade{from{opacity:0}to{opacity:1}}",
       "@keyframes spin{to{transform:rotate(1turn)}}",
-      ".animated{animation:fade 1s ease}",
+      "@keyframes slide{to{transform:translateX(1rem)}}",
+      ".animated{animation:1s ease fade, 200ms linear slide}",
       ".not-animated{animation:spin 1s ease}",
     ].join("");
     const coverage: CssCoverageEntry[] = [
@@ -19,7 +21,7 @@ describe("Used CSS extractor", () => {
         text: css,
         ranges: [
           rangeFor(css, "color:red"),
-          rangeFor(css, "animation:fade"),
+          rangeFor(css, "animation:1s ease fade"),
         ],
       },
     ];
@@ -30,8 +32,10 @@ describe("Used CSS extractor", () => {
     expect(result).toContain("@media (min-width: 700px){.used{color:red}}");
     expect(result).toContain("@supports (display:grid){@layer components{.safe-card{display:grid}}}");
     expect(result).toContain("@font-face{font-family:Rocket;src:url(rocket.woff2)}");
+    expect(result).toContain("@property --angle{syntax:'<angle>';initial-value:0deg;inherits:false}");
     expect(result).toContain("@keyframes fade{from{opacity:0}to{opacity:1}}");
-    expect(result).toContain(".animated{animation:fade 1s ease}");
+    expect(result).toContain("@keyframes slide{to{transform:translateX(1rem)}}");
+    expect(result).toContain(".animated{animation:1s ease fade, 200ms linear slide}");
     expect(result).not.toContain(".unused{color:blue}");
     expect(result).not.toContain(".unused-media");
     expect(result).not.toContain(".unused-layer");
@@ -45,6 +49,15 @@ describe("Used CSS extractor", () => {
 
     expect(result).toContain(".keep-me{color:red}");
     expect(result).not.toContain(".drop-me");
+  });
+
+  it("accepts wildcard safelist entries for dynamic classes", () => {
+    const css = ".swiper-slide-active{opacity:1}.swiper-slide-next{opacity:.5}.other{opacity:0}";
+    const result = buildUsedCss([{ text: css, ranges: [] }], [".swiper-slide-*"]);
+
+    expect(result).toContain(".swiper-slide-active{opacity:1}");
+    expect(result).toContain(".swiper-slide-next{opacity:.5}");
+    expect(result).not.toContain(".other");
   });
 });
 

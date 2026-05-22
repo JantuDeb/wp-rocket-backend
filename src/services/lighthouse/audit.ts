@@ -5,8 +5,10 @@ import { env } from "../../config/env.js";
 import type {
   PerformanceIssue,
   PerformanceHandleMetadata,
+  PerformanceInlineSource,
   PerformanceLcpPreloadCandidate,
   PerformanceMetrics,
+  PerformanceObservability,
   PerformanceDomEvidence,
   PerformanceReport,
   PerformanceResource,
@@ -43,8 +45,14 @@ export function fakePerformanceMetrics(jobId: string): PerformanceMetrics {
   };
 }
 
-export function fakePerformanceReport(jobId: string, url = "https://example.com"): PerformanceReport {
+export function fakePerformanceReport(
+  jobId: string,
+  url = "https://example.com",
+  handles: PerformanceHandleMetadata[] = [],
+): PerformanceReport {
   const metrics = fakePerformanceMetrics(jobId);
+  const pageUrl = new URL(url);
+  const inlineSources = inlineSourcesForHandles(handles, pageUrl);
 
   return {
     uuid: jobId,
@@ -53,24 +61,38 @@ export function fakePerformanceReport(jobId: string, url = "https://example.com"
     metrics,
     issues: [],
     resources: [],
+    inline_sources: inlineSources,
     dom_evidence: [],
     lcp_preload_candidates: [],
-    source_groups: [],
+    source_groups: buildSourceGroups([], [], inlineSources),
+    observability: {
+      audit_duration_ms: 0,
+      resource_count: 0,
+      issue_count: 0,
+    },
   };
 }
 
 export async function auditPerformance(input: PerformanceAuditInput): Promise<PerformanceReport> {
   if (env.NODE_ENV === "test") {
-    return fakePerformanceReport(input.jobId, input.url);
+    return fakePerformanceReport(input.jobId, input.url, input.handles);
   }
 
   const url = normalizeHttpUrl(input.url);
   await assertFetchAllowed(url);
+  const auditStartedAt = Date.now();
+  const observability: PerformanceObservability = {
+    audit_duration_ms: 0,
+    resource_count: 0,
+    issue_count: 0,
+  };
+  const browserLaunchStartedAt = Date.now();
   const browser = await puppeteer.launch({
     executablePath: chromiumExecutablePath(),
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     acceptInsecureCerts: true,
   });
+  observability.browser_launch_ms = Date.now() - browserLaunchStartedAt;
 
   try {
     const page = await browser.newPage();
@@ -81,17 +103,21 @@ export async function auditPerformance(input: PerformanceAuditInput): Promise<Pe
       height: env.PERFORMANCE_DESKTOP_HEIGHT,
     });
     await installMetricObservers(page);
+    const pageLoadStartedAt = Date.now();
     await page.goto(url.href, {
       waitUntil: "networkidle2",
       timeout: env.PERFORMANCE_TIMEOUT_MS,
     });
     await new Promise((resolve) => setTimeout(resolve, 1000));
+    observability.page_load_ms = Date.now() - pageLoadStartedAt;
 
+    const collectStartedAt = Date.now();
     const [timings, resources, lcpPreloadCandidates] = await Promise.all([
       collectMetrics(page),
       collectResources(page, url, input.handles ?? []),
       collectLcpPreloadCandidates(page, url),
     ]);
+    observability.metrics_collect_ms = Date.now() - collectStartedAt;
     const metrics: PerformanceMetrics = {
       report_url: `http://localhost:${env.PORT}/reports/${input.jobId}`,
       performance_score: scoreMetrics(timings),
@@ -101,6 +127,10 @@ export async function auditPerformance(input: PerformanceAuditInput): Promise<Pe
       time_to_first_byte: { value: Math.round(timings.ttfb) },
     };
     const issues = buildIssues(metrics, resources, url, timings.domEvidence, lcpPreloadCandidates);
+    const inlineSources = inlineSourcesForHandles(input.handles ?? [], url);
+    observability.audit_duration_ms = Date.now() - auditStartedAt;
+    observability.resource_count = resources.length;
+    observability.issue_count = issues.length;
 
     return {
       uuid: input.jobId,
@@ -109,10 +139,16 @@ export async function auditPerformance(input: PerformanceAuditInput): Promise<Pe
       metrics,
       issues,
       resources,
+      inline_sources: inlineSources,
       dom_evidence: timings.domEvidence,
       lcp_preload_candidates: lcpPreloadCandidates,
-      source_groups: buildSourceGroups(resources, issues),
+      source_groups: buildSourceGroups(resources, issues, inlineSources),
+      observability,
     };
+  } catch (error) {
+    observability.audit_duration_ms = Date.now() - auditStartedAt;
+    observability.browser_error = error instanceof Error ? error.message : "Unknown browser audit failure";
+    throw error;
   } finally {
     await browser.close();
   }
@@ -315,6 +351,13 @@ async function collectLcpPreloadCandidates(
       return element.querySelector("img") ?? undefined;
     }
 
+    function srcsetUrls(value: string | null | undefined): string[] {
+      return (value ?? "")
+        .split(",")
+        .map((part) => part.trim().split(/\s+/)[0])
+        .filter(Boolean);
+    }
+
     function imageCandidate(image: HTMLImageElement, selector: string, priority: number) {
       const rect = image.getBoundingClientRect();
       const url = image.currentSrc || image.src || image.getAttribute("src") || "";
@@ -328,6 +371,15 @@ async function collectLcpPreloadCandidates(
         selector,
         tag: image.tagName.toLowerCase(),
         current_loading: image.loading || undefined,
+        srcset: image.getAttribute("srcset") || undefined,
+        sizes: image.getAttribute("sizes") || undefined,
+        picture_sources: Array.from(image.closest("picture")?.querySelectorAll("source") ?? [])
+          .map((source) => ({
+            srcset: source.getAttribute("srcset") || "",
+            media: source.getAttribute("media") || undefined,
+            type: source.getAttribute("type") || undefined,
+          }))
+          .filter((source) => source.srcset),
         width: Math.round(rect.width),
         height: Math.round(rect.height),
         priority,
@@ -359,14 +411,50 @@ async function collectLcpPreloadCandidates(
         .map((link) => (link as HTMLLinkElement).href)
         .filter(Boolean),
     );
+    const preloadCandidates = Array.from(document.querySelectorAll('link[rel~="preload"][as="image"]'))
+      .flatMap((link) => {
+        const preload = link as HTMLLinkElement;
+
+        return [
+          preload.href,
+          ...srcsetUrls(preload.getAttribute("imagesrcset")),
+        ].filter(Boolean);
+      });
 
     return [...(lcpCandidate ? [lcpCandidate] : []), ...aboveFoldCandidates]
       .filter((candidate, index, items) => items.findIndex((item) => item.url === candidate.url) === index)
       .slice(0, 3)
-      .map((candidate) => ({
-        ...candidate,
-        already_preloaded: preloadHrefs.has(candidate.url),
-      }));
+      .map((candidate) => {
+        const candidateUrls = [
+          candidate.url,
+          ...srcsetUrls(candidate.srcset),
+          ...candidate.picture_sources.flatMap((source) => srcsetUrls(source.srcset)),
+        ];
+        const matchedPreload = preloadCandidates.find((preloadUrl) =>
+          candidateUrls.some((candidateUrl) => urlsMatchForPreload(candidateUrl, preloadUrl)),
+        );
+
+        return {
+          ...candidate,
+          already_preloaded: preloadHrefs.has(candidate.url) || Boolean(matchedPreload),
+          matched_preload: matchedPreload,
+        };
+      });
+
+    function urlsMatchForPreload(left: string, right: string): boolean {
+      try {
+        const leftUrl = new URL(left, document.baseURI);
+        const rightUrl = new URL(right, document.baseURI);
+
+        if (leftUrl.href === rightUrl.href) {
+          return true;
+        }
+
+        return leftUrl.pathname === rightUrl.pathname && leftUrl.search === rightUrl.search;
+      } catch {
+        return left === right;
+      }
+    }
   });
 
   return candidates
@@ -524,8 +612,20 @@ function buildIssues(
 function buildSourceGroups(
   resources: PerformanceResource[],
   issues: PerformanceIssue[],
+  inlineSources: PerformanceInlineSource[] = [],
 ): PerformanceSourceGroup[] {
   const groups = new Map<string, PerformanceSourceGroup>();
+
+  for (const inlineSource of inlineSources) {
+    const key = sourceKey(inlineSource.source);
+    groups.set(key, groups.get(key) ?? {
+      source: inlineSource.source,
+      resources_count: 0,
+      total_duration: 0,
+      transfer_size: 0,
+      issue_ids: [],
+    });
+  }
 
   for (const resource of resources) {
     const key = sourceKey(resource.source);
@@ -598,6 +698,36 @@ function metadataMatchesResource(
   }
 
   return normalizeResourceUrl(metadata.url) === normalizeResourceUrl(resource.url);
+}
+
+function inlineSourcesForHandles(
+  handles: PerformanceHandleMetadata[],
+  pageUrl: URL,
+): PerformanceInlineSource[] {
+  return handles
+    .filter((handle) => handle.inline || !handle.url)
+    .map((handle) => {
+      const source = sourceForHandle(handle, pageUrl);
+
+      return {
+        source,
+        type: handle.type,
+        selector: handle.selector,
+        id: handle.id,
+      };
+    });
+}
+
+function sourceForHandle(
+  handle: PerformanceHandleMetadata,
+  pageUrl: URL,
+): PerformanceSourceAttribution {
+  return {
+    kind: handle.source_kind ?? "first-party",
+    slug: handle.source_slug,
+    host: pageUrl.host,
+    handle: handle.handle,
+  };
 }
 
 function normalizeResourceUrl(value: string): string {

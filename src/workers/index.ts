@@ -18,7 +18,15 @@ export function startWorkers(store: JobStore, logger?: FastifyBaseLogger): Worke
     new Worker<QueuePayload>(
       kind,
       async (job) => {
+        const startedAt = Date.now();
+
         await processJob(kind, store, job.data);
+        logger?.info({
+          jobId: job.data.jobId,
+          queue: kind,
+          attemptsMade: job.attemptsMade,
+          durationMs: Date.now() - startedAt,
+        }, "Queued job completed");
       },
       {
         connection: queueConnection(),
@@ -29,7 +37,13 @@ export function startWorkers(store: JobStore, logger?: FastifyBaseLogger): Worke
 
   for (const worker of workers) {
     worker.on("failed", (job, error) => {
-      logger?.error({ error, jobId: job?.data.jobId, queue: worker.name }, "Queued job failed");
+      logger?.error({
+        error,
+        jobId: job?.data.jobId,
+        queue: worker.name,
+        attemptsMade: job?.attemptsMade,
+        failedReason: job?.failedReason,
+      }, "Queued job failed");
     });
   }
 

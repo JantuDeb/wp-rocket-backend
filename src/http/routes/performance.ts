@@ -178,6 +178,9 @@ function normalizeHandleMetadata(value: unknown): PerformanceHandleMetadata | un
     type: typeof item.type === "string" ? item.type : undefined,
     source_kind: readSourceKind(item.source_kind),
     source_slug: typeof item.source_slug === "string" ? item.source_slug : undefined,
+    inline: item.inline === true || item.inline === "true" || item.inline === 1 || item.inline === "1",
+    selector: typeof item.selector === "string" ? item.selector : undefined,
+    id: typeof item.id === "string" ? item.id : undefined,
   };
 }
 

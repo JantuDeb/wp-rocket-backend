@@ -32,7 +32,7 @@ Redis mode persists job results and performance reports for `REDIS_JOB_TTL_SECON
 
 `docker-compose.yml` starts Redis and the backend in Redis queue mode with health checks for both services.
 
-BullMQ attempts, backoff, completed/failed job retention, and worker concurrency are configurable through environment variables.
+BullMQ attempts, backoff, completed/failed job retention, and worker concurrency are configurable through environment variables. Redis job indexes prune expired job IDs when lists are read so dashboard views do not retain references after payload TTL expiry.
 
 ## Browser-Backed Optimizations
 
@@ -57,11 +57,12 @@ The additive `GET /reports/:jobId` endpoint returns richer JSON for a custom WP 
 
 - metrics: performance score, LCP, TBT, CLS, TTFB
 - detected issues: slow TTFB, slow LCP, high TBT, layout shifts, render-blocking resources, large JS/CSS, third-party impact
-- LCP preload candidates with exact image URL, selector, source attribution, dimensions, loading state, and preload status
+- LCP preload candidates with exact image URL, selector, source attribution, dimensions, loading state, preload status, matched preload URL, `srcset`, `sizes`, and `picture` source evidence
 - resource evidence with plugin/theme/core/uploads/third-party attribution
-- optional WordPress script/style handle attribution when performance job payloads include handle metadata
+- optional WordPress script/style handle attribution when performance job payloads include external or inline handle metadata
 - DOM evidence for LCP and layout-shift sources when browser APIs provide it
 - source groups aggregating resources and issue IDs by plugin/theme/host/source type
+- observability fields for audit duration, browser launch/load/collection timing, resource count, issue count, and browser errors when available
 
 ## Recommendations
 
@@ -97,9 +98,12 @@ The suite covers:
 - contract shapes for RUCSS, Performance Hints, CPCSS, Performance, Recommendations, and Dynamic Lists
 - admin job/report listing, filtering, queue health, retry/cancel endpoints, and the dashboard HTML shell
 - dashboard report history controls wired to the history API
+- opt-in Redis/BullMQ queue processing through real Redis with `RUN_REDIS_TESTS=1`
 - additive report and report recommendation endpoints
 - LCP preload candidate report fields and recommendation mapping
+- external and inline WordPress handle attribution
 - PostCSS-based used-CSS pruning for nested `@media`, `@supports`, `@layer`, keyframes, custom properties, font faces, and safelists
+- wildcard dynamic-class safelists, multi-animation keyframe retention, and CSS registration at-rule preservation
 
 Current verification commands:
 
@@ -112,8 +116,7 @@ npm test
 
 The largest remaining implementation gaps are:
 
-- deeper RUCSS parity with WP Rocket SaaS behavior on complex production stylesheets
-- inline script/style attribution for handles that do not have external resource URLs
-- broader LCP preload validation across responsive `srcset`/`picture` art direction and CDN-rewritten image URLs
-- integration tests that run Redis/BullMQ jobs in CI, not only local Docker smoke tests
-- deeper production observability around worker timing, browser failures, and report retention cleanup
+- CI wiring for the opt-in Redis/BullMQ integration test using a Redis service container
+- broader production RUCSS parity validation against a corpus of real themes/plugins
+- browser-level tests for responsive LCP preload detection across live `srcset`, `picture`, and CDN rewrite scenarios
+- richer long-term observability sinks, such as metrics export and alerting around worker/browser failure rates

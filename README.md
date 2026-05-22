@@ -61,6 +61,12 @@ Redis/BullMQ production controls:
 - `QUEUE_REMOVE_ON_FAIL_AGE_SECONDS`: failed BullMQ retention.
 - `WORKER_CONCURRENCY`: worker concurrency per queue.
 
+Redis/BullMQ integration coverage is opt-in so the default test suite does not require Redis:
+
+```sh
+RUN_REDIS_TESTS=1 REDIS_URL=redis://127.0.0.1:6379 npm test -- tests/contract/redis-queue.integration.test.ts
+```
+
 ## WordPress Constants
 
 ```php
@@ -94,7 +100,7 @@ The backend implements contract-compatible responses for:
 - `GET /api/v2/delay-js-exclusions/list`
 - `GET /api/v2/incompatible-plugins/list`
 
-Jobs currently use in-memory storage. Critical CSS, RUCSS, Performance Hints, and Rocket Insights use local Chromium-backed workers outside `NODE_ENV=test`; tests keep deterministic fake output for speed.
+Jobs use in-memory storage by default and Redis/BullMQ when `QUEUE_DRIVER=redis`. Critical CSS, RUCSS, Performance Hints, and Rocket Insights use local Chromium-backed workers outside `NODE_ENV=test`; tests keep deterministic fake output for speed.
 
 Set `CPCSS_CHROMIUM_EXECUTABLE`, `RUCSS_CHROMIUM_EXECUTABLE`, and `PERFORMANCE_CHROMIUM_EXECUTABLE` when Chromium is not available at `/usr/bin/chromium`. Private network URLs are blocked by default for browser-backed jobs; enable the matching `*_ALLOW_PRIVATE_NETWORKS` flag only for trusted local development.
 
@@ -114,12 +120,24 @@ Performance jobs may include optional WordPress handle metadata under `handles`,
       "type": "script",
       "source_kind": "plugin",
       "source_slug": "shop"
+    },
+    {
+      "handle": "theme-inline-critical",
+      "type": "style",
+      "source_kind": "theme",
+      "source_slug": "storefront",
+      "inline": true,
+      "id": "storefront-inline-css"
     }
   ]
 }
 ```
 
-When a measured resource URL matches, reports preserve the handle in `resource.source.handle` and source groups separate that handle from other resources in the same plugin/theme.
+When a measured resource URL matches, reports preserve the handle in `resource.source.handle` and source groups separate that handle from other resources in the same plugin/theme. Inline handle metadata is preserved in `report.inline_sources` and added to `report.source_groups` with zero network resources so a UI can still attribute inline CSS/JS to the responsible handle.
+
+Granular reports include `observability` with audit duration, browser launch/page load/collection timing when available, resource count, issue count, and browser error text for failed browser audits. Redis storage prunes expired job IDs from list indexes as retained job payloads age out, and workers log queue, attempt, and duration fields for completed and failed jobs.
+
+LCP preload candidates include the selected image URL plus responsive evidence such as `srcset`, `sizes`, `picture_sources`, and any matching preload URL detected through `href` or `imagesrcset`. URL matching tolerates equivalent absolute/relative URLs and CDN host rewrites when the path and query identify the same image candidate.
 
 Use `GET /reports/:jobId/recommendations` to turn a granular report into actionable recommendation cards with source attribution and fix steps. The legacy `GET /recommendations/` endpoint remains compatible with the WP Rocket client and also uses submitted metrics such as `lcp`, `ttfb`, `cls`, and `tbt` when present.
 

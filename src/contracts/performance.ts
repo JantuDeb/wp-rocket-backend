@@ -22,6 +22,9 @@ export type PerformanceHandleMetadata = {
   type?: string;
   source_kind?: PerformanceSourceAttribution["kind"];
   source_slug?: string;
+  inline?: boolean;
+  selector?: string;
+  id?: string;
 };
 
 export type PerformanceResource = {
@@ -50,9 +53,34 @@ export type PerformanceLcpPreloadCandidate = {
   fetchpriority: "high";
   source: PerformanceSourceAttribution;
   already_preloaded: boolean;
+  matched_preload?: string;
+  srcset?: string;
+  sizes?: string;
+  picture_sources?: Array<{
+    srcset: string;
+    media?: string;
+    type?: string;
+  }>;
   current_loading?: string;
   width?: number;
   height?: number;
+};
+
+export type PerformanceInlineSource = {
+  source: PerformanceSourceAttribution;
+  type?: string;
+  selector?: string;
+  id?: string;
+};
+
+export type PerformanceObservability = {
+  audit_duration_ms: number;
+  browser_launch_ms?: number;
+  page_load_ms?: number;
+  metrics_collect_ms?: number;
+  resource_count: number;
+  issue_count: number;
+  browser_error?: string;
 };
 
 export type PerformanceIssue = {
@@ -92,9 +120,11 @@ export type PerformanceReport = {
   metrics: PerformanceMetrics;
   issues: PerformanceIssue[];
   resources: PerformanceResource[];
+  inline_sources: PerformanceInlineSource[];
   dom_evidence: PerformanceDomEvidence[];
   lcp_preload_candidates: PerformanceLcpPreloadCandidate[];
   source_groups: PerformanceSourceGroup[];
+  observability: PerformanceObservability;
 };
 
 export type PerformanceJobResult = {

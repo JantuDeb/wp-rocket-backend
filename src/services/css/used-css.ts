@@ -188,6 +188,12 @@ function selectorMatchesSafelist(selector: string, item: string): boolean {
     }
   }
 
+  if (pattern.includes("*")) {
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*");
+
+    return new RegExp(escaped).test(selector);
+  }
+
   return selector.includes(pattern);
 }
 
@@ -202,14 +208,23 @@ function preservesCustomProperties(rule: Rule): boolean {
 function collectAnimationNames(rule: Rule, names: Set<string>): void {
   rule.walkDecls((decl) => {
     if (decl.prop === "animation-name") {
-      names.add(decl.value.trim());
+      for (const name of decl.value.split(",")) {
+        const trimmed = name.trim();
+
+        if (trimmed && trimmed !== "none") {
+          names.add(trimmed);
+        }
+      }
       return;
     }
 
     if (decl.prop === "animation") {
-      const animationName = decl.value.split(/\s+/).find((part) => !animationKeywords.has(part));
+      const animationNames = decl.value
+        .split(",")
+        .map((animation) => animation.trim().split(/\s+/).find((part) => isAnimationNameToken(part)))
+        .filter((name): name is string => Boolean(name));
 
-      if (animationName) {
+      for (const animationName of animationNames) {
         names.add(animationName);
       }
     }
@@ -217,7 +232,7 @@ function collectAnimationNames(rule: Rule, names: Set<string>): void {
 }
 
 function isAlwaysPreservedAtRule(atRule: AtRule): boolean {
-  return atRule.name === "font-face";
+  return atRule.name === "font-face" || atRule.name === "property" || atRule.name === "namespace";
 }
 
 function isKeyframesAtRule(atRule: AtRule): boolean {
@@ -260,6 +275,16 @@ const animationKeywords = new Set([
   "ease-in-out",
   "linear",
 ]);
+
+function isAnimationNameToken(part: string | undefined): boolean {
+  if (!part || animationKeywords.has(part)) {
+    return false;
+  }
+
+  return !/^[\d.]+m?s$/.test(part) &&
+    !/^[\d.]+$/.test(part) &&
+    !/^(cubic-bezier|steps)\(/.test(part);
+}
 
 function mergeRanges(ranges: CssCoverageRange[]): CssCoverageRange[] {
   return [...ranges]

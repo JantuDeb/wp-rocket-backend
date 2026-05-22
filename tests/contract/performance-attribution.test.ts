@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attributionForResource } from "../../src/services/lighthouse/audit.js";
+import { auditPerformance, attributionForResource, fakePerformanceReport } from "../../src/services/lighthouse/audit.js";
 
 describe("Performance resource attribution", () => {
   it("uses WordPress handle metadata when resource URLs match", () => {
@@ -50,5 +50,54 @@ describe("Performance resource attribution", () => {
       host: "example.com",
     });
   });
-});
 
+  it("preserves inline WordPress handles as source groups", async () => {
+    const report = await auditPerformance({
+      url: "https://example.com/",
+      jobId: "perf_inline",
+      handles: [
+        {
+          handle: "theme-inline-critical",
+          type: "style",
+          source_kind: "theme",
+          source_slug: "storefront",
+          inline: true,
+          id: "storefront-inline-css",
+        },
+      ],
+    });
+
+    expect(report.inline_sources).toEqual([
+      {
+        source: {
+          kind: "theme",
+          slug: "storefront",
+          host: "example.com",
+          handle: "theme-inline-critical",
+        },
+        type: "style",
+        id: "storefront-inline-css",
+      },
+    ]);
+    expect(report.source_groups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: expect.objectContaining({
+            handle: "theme-inline-critical",
+          }),
+          resources_count: 0,
+        }),
+      ]),
+    );
+  });
+
+  it("includes report observability fields", () => {
+    const report = fakePerformanceReport("perf_observe");
+
+    expect(report.observability).toMatchObject({
+      audit_duration_ms: expect.any(Number),
+      resource_count: expect.any(Number),
+      issue_count: expect.any(Number),
+    });
+  });
+});

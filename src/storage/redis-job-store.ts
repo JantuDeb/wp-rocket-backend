@@ -45,6 +45,15 @@ export class RedisJobStore implements JobStore {
     const offset = options.offset ?? 0;
     const ids = await this.redis.zrevrange(this.indexKey(options.kind), offset, offset + Math.max(0, limit - 1));
     const jobs = await Promise.all(ids.map((id) => this.get(id)));
+    const missingIds = ids.filter((_, index) => !jobs[index]);
+
+    if (missingIds.length > 0) {
+      await this.redis.zrem(this.indexKey(options.kind), ...missingIds);
+
+      if (options.kind) {
+        await this.redis.zrem(this.indexKey(), ...missingIds);
+      }
+    }
 
     return jobs.filter((job): job is StoredJob => Boolean(job));
   }

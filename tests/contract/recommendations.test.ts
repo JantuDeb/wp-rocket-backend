@@ -128,9 +128,15 @@ describe("Recommendations contract", () => {
         },
       ],
       resources: [],
+      inline_sources: [],
       dom_evidence: [],
       lcp_preload_candidates: [],
       source_groups: [],
+      observability: {
+        audit_duration_ms: 0,
+        resource_count: 0,
+        issue_count: 1,
+      },
     };
 
     const recommendations = recommendationsForReport(report);
