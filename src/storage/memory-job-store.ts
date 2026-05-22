@@ -5,13 +5,16 @@ export class MemoryJobStore implements JobStore {
   private readonly jobs = new Map<string, StoredJob>();
 
   create<T>(kind: JobKind, input: unknown, result: T): StoredJob<T> {
+    const now = Date.now();
     const job: StoredJob<T> = {
       id: createJobId(kind),
       kind,
       state: "pending",
       input,
       result,
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+      attempts: 1,
       completeAfterMs: env.JOB_COMPLETE_AFTER_MS,
     };
 
@@ -34,6 +37,33 @@ export class MemoryJobStore implements JobStore {
     return job;
   }
 
+  list(options: { kind?: JobKind; limit?: number; offset?: number } = {}): StoredJob[] {
+    const limit = options.limit ?? 100;
+    const offset = options.offset ?? 0;
+
+    return [...this.jobs.values()]
+      .map((job) => this.get(job.id))
+      .filter((job): job is StoredJob => Boolean(job))
+      .filter((job) => !options.kind || job.kind === options.kind)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(offset, offset + limit);
+  }
+
+  markPending<T = unknown>(id: string): StoredJob<T> | undefined {
+    const job = this.jobs.get(id) as StoredJob<T> | undefined;
+
+    if (!job) {
+      return undefined;
+    }
+
+    job.state = "pending";
+    job.error = undefined;
+    job.updatedAt = Date.now();
+    job.attempts += 1;
+
+    return job;
+  }
+
   complete<T>(id: string, result: T): StoredJob<T> | undefined {
     const job = this.jobs.get(id) as StoredJob<T> | undefined;
 
@@ -44,6 +74,7 @@ export class MemoryJobStore implements JobStore {
     job.state = "completed";
     job.result = result;
     job.error = undefined;
+    job.updatedAt = Date.now();
 
     return job;
   }
@@ -58,6 +89,7 @@ export class MemoryJobStore implements JobStore {
     job.state = "failed";
     job.result = result;
     job.error = error;
+    job.updatedAt = Date.now();
 
     return job;
   }

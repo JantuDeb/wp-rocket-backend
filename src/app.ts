@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { logger } from "./config/logger.js";
 import { env } from "./config/env.js";
 import { registerAuth } from "./http/plugins/auth.js";
+import { adminRoutes } from "./http/routes/admin.js";
 import { registerFormBody } from "./http/plugins/form-body.js";
 import { cpcssRoutes } from "./http/routes/cpcss.js";
 import { dynamicListsRoutes } from "./http/routes/dynamic-lists.js";
@@ -34,6 +35,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await registerFormBody(app);
   await registerAuth(app);
 
+  await adminRoutes(app, store, producer);
   await healthRoutes(app);
   await rucssRoutes(app, store, producer);
   await cpcssRoutes(app, store, producer);

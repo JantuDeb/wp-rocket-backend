@@ -4,6 +4,8 @@ import puppeteer from "puppeteer-core";
 import { env } from "../../config/env.js";
 import type {
   PerformanceIssue,
+  PerformanceHandleMetadata,
+  PerformanceLcpPreloadCandidate,
   PerformanceMetrics,
   PerformanceDomEvidence,
   PerformanceReport,
@@ -27,6 +29,7 @@ declare global {
 export type PerformanceAuditInput = {
   url: string;
   jobId: string;
+  handles?: PerformanceHandleMetadata[];
 };
 
 export function fakePerformanceMetrics(jobId: string): PerformanceMetrics {
@@ -51,6 +54,7 @@ export function fakePerformanceReport(jobId: string, url = "https://example.com"
     issues: [],
     resources: [],
     dom_evidence: [],
+    lcp_preload_candidates: [],
     source_groups: [],
   };
 }
@@ -83,9 +87,10 @@ export async function auditPerformance(input: PerformanceAuditInput): Promise<Pe
     });
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    const [timings, resources] = await Promise.all([
+    const [timings, resources, lcpPreloadCandidates] = await Promise.all([
       collectMetrics(page),
-      collectResources(page, url),
+      collectResources(page, url, input.handles ?? []),
+      collectLcpPreloadCandidates(page, url),
     ]);
     const metrics: PerformanceMetrics = {
       report_url: `http://localhost:${env.PORT}/reports/${input.jobId}`,
@@ -95,7 +100,7 @@ export async function auditPerformance(input: PerformanceAuditInput): Promise<Pe
       cumulative_layout_shift: { value: Number(timings.cls.toFixed(3)) },
       time_to_first_byte: { value: Math.round(timings.ttfb) },
     };
-    const issues = buildIssues(metrics, resources, url, timings.domEvidence);
+    const issues = buildIssues(metrics, resources, url, timings.domEvidence, lcpPreloadCandidates);
 
     return {
       uuid: input.jobId,
@@ -105,6 +110,7 @@ export async function auditPerformance(input: PerformanceAuditInput): Promise<Pe
       issues,
       resources,
       dom_evidence: timings.domEvidence,
+      lcp_preload_candidates: lcpPreloadCandidates,
       source_groups: buildSourceGroups(resources, issues),
     };
   } finally {
@@ -254,6 +260,7 @@ async function collectMetrics(page: import("puppeteer-core").Page): Promise<{
 async function collectResources(
   page: import("puppeteer-core").Page,
   pageUrl: URL,
+  handles: PerformanceHandleMetadata[],
 ): Promise<PerformanceResource[]> {
   const resources = await page.evaluate(() =>
     performance.getEntriesByType("resource").map((entry) => {
@@ -275,10 +282,101 @@ async function collectResources(
     .filter((resource) => resource.url.startsWith("http://") || resource.url.startsWith("https://"))
     .map((resource) => ({
       ...resource,
-      source: attributionForUrl(resource.url, pageUrl),
+      source: attributionForResource(resource, pageUrl, handles),
     }))
     .sort((a, b) => b.duration - a.duration)
     .slice(0, 100);
+}
+
+async function collectLcpPreloadCandidates(
+  page: import("puppeteer-core").Page,
+  pageUrl: URL,
+): Promise<PerformanceLcpPreloadCandidate[]> {
+  const candidates = await page.evaluate(() => {
+    function selectorFor(element: Element): string {
+      if (element.id) {
+        return `#${CSS.escape(element.id)}`;
+      }
+
+      const className = Array.from(element.classList).slice(0, 3).map((item) => `.${CSS.escape(item)}`).join("");
+
+      return `${element.tagName.toLowerCase()}${className}`;
+    }
+
+    function imageFromElement(element: Element | undefined): HTMLImageElement | undefined {
+      if (!element) {
+        return undefined;
+      }
+
+      if (element instanceof HTMLImageElement) {
+        return element;
+      }
+
+      return element.querySelector("img") ?? undefined;
+    }
+
+    function imageCandidate(image: HTMLImageElement, selector: string, priority: number) {
+      const rect = image.getBoundingClientRect();
+      const url = image.currentSrc || image.src || image.getAttribute("src") || "";
+
+      if (!url || rect.width <= 0 || rect.height <= 0) {
+        return undefined;
+      }
+
+      return {
+        url,
+        selector,
+        tag: image.tagName.toLowerCase(),
+        current_loading: image.loading || undefined,
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        priority,
+      };
+    }
+
+    const metrics = window.__rocketMetrics;
+    const lcpImage = imageFromElement(metrics?.lcpElement?.selector
+      ? document.querySelector(metrics.lcpElement.selector) ?? undefined
+      : undefined);
+    const lcpCandidate = lcpImage ? imageCandidate(lcpImage, metrics?.lcpElement?.selector ?? selectorFor(lcpImage), 0) : undefined;
+    const viewportHeight = window.innerHeight;
+    const aboveFoldCandidates = Array.from(document.images)
+      .map((image, index) => imageCandidate(image, selectorFor(image), index + 1))
+      .filter((candidate): candidate is NonNullable<typeof candidate> => {
+        if (!candidate) {
+          return false;
+        }
+
+        const image = document.querySelector(candidate.selector) as HTMLImageElement | null;
+        const rect = image?.getBoundingClientRect();
+
+        return Boolean(rect && rect.bottom > 0 && rect.top < viewportHeight);
+      })
+      .sort((a, b) => b.width * b.height - a.width * a.height)
+      .slice(0, 3);
+    const preloadHrefs = new Set(
+      Array.from(document.querySelectorAll('link[rel~="preload"][as="image"]'))
+        .map((link) => (link as HTMLLinkElement).href)
+        .filter(Boolean),
+    );
+
+    return [...(lcpCandidate ? [lcpCandidate] : []), ...aboveFoldCandidates]
+      .filter((candidate, index, items) => items.findIndex((item) => item.url === candidate.url) === index)
+      .slice(0, 3)
+      .map((candidate) => ({
+        ...candidate,
+        already_preloaded: preloadHrefs.has(candidate.url),
+      }));
+  });
+
+  return candidates
+    .filter((candidate) => candidate.url.startsWith("http://") || candidate.url.startsWith("https://"))
+    .map(({ priority: _priority, ...candidate }) => ({
+      ...candidate,
+      as: "image",
+      fetchpriority: "high",
+      source: attributionForUrl(candidate.url, pageUrl),
+    }));
 }
 
 function buildIssues(
@@ -286,6 +384,7 @@ function buildIssues(
   resources: PerformanceResource[],
   pageUrl: URL,
   domEvidence: PerformanceDomEvidence[],
+  lcpPreloadCandidates: PerformanceLcpPreloadCandidate[],
 ): PerformanceIssue[] {
   const issues: PerformanceIssue[] = [];
   const scripts = resources.filter((resource) => resource.type === "script");
@@ -316,6 +415,23 @@ function buildIssues(
       recommendation: "Prioritize the hero image or heading, preload the LCP image when known, reduce render-blocking CSS/JS, and avoid lazy-loading above-the-fold media.",
       evidence: topResources([...styles, ...scripts], 5),
       dom_evidence: domEvidence.filter((item) => item.kind === "lcp"),
+    });
+  }
+
+  const preloadCandidate = lcpPreloadCandidates.find((candidate) => !candidate.already_preloaded);
+
+  if (preloadCandidate && metrics.largest_contentful_paint.value > 1800) {
+    issues.push({
+      id: `lcp-preload-${issueIdForUrl(preloadCandidate.url)}`,
+      type: "lcp_preload_candidate",
+      severity: metrics.largest_contentful_paint.value > 2500 ? "high" : "medium",
+      metric: "lcp",
+      title: "LCP image can be prioritized",
+      description: `${preloadCandidate.url} appears to be a hero or LCP image and is not preloaded.`,
+      recommendation: "Preload this exact image and avoid lazy-loading it so the browser can request it earlier.",
+      evidence: resources.filter((resource) => resource.url === preloadCandidate.url).slice(0, 1),
+      dom_evidence: domEvidence.filter((item) => item.kind === "lcp"),
+      preload_candidates: [preloadCandidate],
     });
   }
 
@@ -446,10 +562,56 @@ function buildSourceGroups(
 }
 
 function sourceKey(source: PerformanceSourceAttribution): string {
-  return [source.kind, source.slug ?? "", source.host ?? ""].join(":");
+  return [source.kind, source.slug ?? "", source.host ?? "", source.handle ?? ""].join(":");
 }
 
-function attributionForUrl(value: string, pageUrl: URL): PerformanceSourceAttribution {
+export function attributionForResource(
+  resource: Pick<PerformanceResource, "url" | "type">,
+  pageUrl: URL,
+  handles: PerformanceHandleMetadata[],
+): PerformanceSourceAttribution {
+  const handle = handles.find((item) => metadataMatchesResource(item, resource));
+  const fallback = attributionForUrl(resource.url, pageUrl);
+
+  if (!handle) {
+    return fallback;
+  }
+
+  return {
+    ...fallback,
+    kind: handle.source_kind ?? fallback.kind,
+    slug: handle.source_slug ?? fallback.slug,
+    handle: handle.handle,
+  };
+}
+
+function metadataMatchesResource(
+  metadata: PerformanceHandleMetadata,
+  resource: Pick<PerformanceResource, "url" | "type">,
+): boolean {
+  if (metadata.type && metadata.type !== resource.type) {
+    return false;
+  }
+
+  if (!metadata.url) {
+    return false;
+  }
+
+  return normalizeResourceUrl(metadata.url) === normalizeResourceUrl(resource.url);
+}
+
+function normalizeResourceUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+export function attributionForUrl(value: string, pageUrl: URL): PerformanceSourceAttribution {
   const url = new URL(value);
   const pathParts = url.pathname.split("/").filter(Boolean);
   const wpContentIndex = pathParts.indexOf("wp-content");
@@ -493,7 +655,11 @@ function isRenderBlocking(resource: PerformanceResource): boolean {
 }
 
 function issueIdForResource(resource: PerformanceResource): string {
-  return Buffer.from(resource.url).toString("base64url").slice(0, 16);
+  return issueIdForUrl(resource.url);
+}
+
+function issueIdForUrl(url: string): string {
+  return Buffer.from(url).toString("base64url").slice(0, 16);
 }
 
 function formatBytes(bytes: number): string {

@@ -94,6 +94,7 @@ describe("Performance endpoints", () => {
       issues: expect.any(Array),
       resources: expect.any(Array),
       dom_evidence: expect.any(Array),
+      lcp_preload_candidates: expect.any(Array),
       source_groups: expect.any(Array),
     });
   });

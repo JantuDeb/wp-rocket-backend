@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import type { FastifyBaseLogger } from "fastify";
+import { env } from "../config/env.js";
 import type { JobKind, JobStore } from "../storage/job-store.js";
 import { queueConnection } from "../queues/connection.js";
 import type { QueuePayload } from "../queues/producers.js";
@@ -21,7 +22,7 @@ export function startWorkers(store: JobStore, logger?: FastifyBaseLogger): Worke
       },
       {
         connection: queueConnection(),
-        concurrency: 1,
+        concurrency: env.WORKER_CONCURRENCY,
       },
     ),
   );

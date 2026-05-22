@@ -1,4 +1,10 @@
-import type { PerformanceIssue, PerformanceMetrics, PerformanceReport, PerformanceResource } from "../../contracts/performance.js";
+import type {
+  PerformanceIssue,
+  PerformanceLcpPreloadCandidate,
+  PerformanceMetrics,
+  PerformanceReport,
+  PerformanceResource,
+} from "../../contracts/performance.js";
 import type { Recommendation } from "../../contracts/recommendations.js";
 
 type RecommendationsInput = {
@@ -134,6 +140,21 @@ function recommendationsForIssue(issue: PerformanceIssue, metrics: PerformanceMe
         }),
       ];
 
+    case "lcp_preload_candidate": {
+      const candidate = issue.preload_candidates?.[0];
+
+      return [
+        preloadLcpImageRecommendation({
+          priority: issue.severity === "high" ? 95 : 82,
+          description: candidate
+            ? `Preload ${candidate.url} with high fetch priority; it matches ${candidate.selector || "the measured LCP image"}.`
+            : issue.recommendation,
+          issue,
+          candidate,
+        }),
+      ];
+    }
+
     case "layout_shift":
       return [
         layoutShiftRecommendation({
@@ -193,6 +214,31 @@ function delayJsRecommendation(input: {
       "Unload plugin scripts on page types where the plugin feature is unused.",
     ],
   }, input.issue, input.evidence);
+}
+
+function preloadLcpImageRecommendation(input: {
+  priority: number;
+  description: string;
+  issue?: PerformanceIssue;
+  candidate?: PerformanceLcpPreloadCandidate;
+}): RecommendationSeed {
+  return withCandidateEvidence({
+    option_slug: "preload_lcp_image",
+    priority: input.priority,
+    title: "Preload the LCP image",
+    description: input.description,
+    learn_more_url: "https://docs.wp-rocket.me/article/1758-preload-critical-images",
+    icon_slug: "preload",
+    lcp_impact: "high",
+    ttfb_impact: null,
+    cls_impact: null,
+    tbt_impact: null,
+    fix_steps: [
+      "Preload the listed image URL as an image resource.",
+      "Set fetchpriority=\"high\" on the above-the-fold image when the theme outputs it.",
+      "Do not lazy-load the LCP image.",
+    ],
+  }, input.issue, input.candidate);
 }
 
 function removeUnusedCssRecommendation(input: {
@@ -289,6 +335,24 @@ function withEvidence(
   return recommendation;
 }
 
+function withCandidateEvidence(
+  recommendation: RecommendationSeed,
+  issue?: PerformanceIssue,
+  candidate?: PerformanceLcpPreloadCandidate,
+): RecommendationSeed {
+  if (issue) {
+    recommendation.issue_id = issue.id;
+  }
+
+  if (candidate) {
+    recommendation.source_kind = candidate.source.kind;
+    recommendation.source_slug = candidate.source.slug ?? candidate.source.host;
+    recommendation.source_url = candidate.url;
+  }
+
+  return recommendation;
+}
+
 function normalizeMetricInput(input: RecommendationsInput): {
   lcp: number;
   ttfb: number;
@@ -336,6 +400,10 @@ function toNumber(value: unknown): number {
 function sourceLabel(resource: PerformanceResource | undefined): string {
   if (!resource) {
     return "A resource";
+  }
+
+  if (resource.source.handle) {
+    return `WordPress handle "${resource.source.handle}"`;
   }
 
   if (resource.source.kind === "plugin" && resource.source.slug) {

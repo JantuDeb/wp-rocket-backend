@@ -32,6 +32,8 @@ Redis mode persists job results and performance reports for `REDIS_JOB_TTL_SECON
 
 `docker-compose.yml` starts Redis and the backend in Redis queue mode with health checks for both services.
 
+BullMQ attempts, backoff, completed/failed job retention, and worker concurrency are configurable through environment variables.
+
 ## Browser-Backed Optimizations
 
 Critical CSS generation uses local Chromium through Penthouse.
@@ -55,7 +57,9 @@ The additive `GET /reports/:jobId` endpoint returns richer JSON for a custom WP 
 
 - metrics: performance score, LCP, TBT, CLS, TTFB
 - detected issues: slow TTFB, slow LCP, high TBT, layout shifts, render-blocking resources, large JS/CSS, third-party impact
+- LCP preload candidates with exact image URL, selector, source attribution, dimensions, loading state, and preload status
 - resource evidence with plugin/theme/core/uploads/third-party attribution
+- optional WordPress script/style handle attribution when performance job payloads include handle metadata
 - DOM evidence for LCP and layout-shift sources when browser APIs provide it
 - source groups aggregating resources and issue IDs by plugin/theme/host/source type
 
@@ -68,14 +72,33 @@ The additive `GET /reports/:jobId/recommendations` endpoint converts a granular 
 - source attribution fields
 - linked issue IDs
 - source URLs
+- exact LCP image preload recommendations when a report identifies a non-preloaded hero/LCP candidate
 - fix steps for the WP admin UI
+
+## Admin Dashboard
+
+The backend exposes a built-in operations surface:
+
+- `GET /dashboard` renders a lightweight dashboard for recent jobs, queue health, report/recommendation detail, and retry actions.
+- `GET /admin/jobs` lists recent jobs across RUCSS, Performance Hints, CPCSS, and Performance queues with pagination, state/kind filters, and URL/job search.
+- `GET /admin/jobs/:jobId` returns the stored input/result for a single job.
+- `POST /admin/jobs/:jobId/retry` retries a stored job in memory mode or requeues it in Redis/BullMQ mode.
+- `POST /admin/jobs/:jobId/cancel` cancels pending jobs with compatibility-shaped failure results.
+- `GET /admin/reports` lists completed performance reports with score, metrics, and issue counts.
+- `GET /admin/reports/history` returns report history and latest-vs-previous metric deltas for a URL.
+- `GET /admin/queues` returns queue health counts for waiting, active, delayed, completed, and failed jobs.
+
+The dashboard includes job filtering/detail views, queue health, report/recommendation JSON detail, retry/cancel actions, and a report history view with metric deltas and compact trend bars. Memory and Redis storage both maintain enough job index data for these endpoints. Set `ADMIN_TOKEN` to require bearer-token authentication for `/dashboard` and `/admin/*`.
 
 ## Tests
 
 The suite covers:
 
 - contract shapes for RUCSS, Performance Hints, CPCSS, Performance, Recommendations, and Dynamic Lists
+- admin job/report listing, filtering, queue health, retry/cancel endpoints, and the dashboard HTML shell
+- dashboard report history controls wired to the history API
 - additive report and report recommendation endpoints
+- LCP preload candidate report fields and recommendation mapping
 - PostCSS-based used-CSS pruning for nested `@media`, `@supports`, `@layer`, keyframes, custom properties, font faces, and safelists
 
 Current verification commands:
@@ -90,7 +113,7 @@ npm test
 The largest remaining implementation gaps are:
 
 - deeper RUCSS parity with WP Rocket SaaS behavior on complex production stylesheets
-- inline script/style attribution to WordPress handles where the plugin can provide handle metadata
-- richer LCP preload recommendations that identify exact hero image preload candidates
+- inline script/style attribution for handles that do not have external resource URLs
+- broader LCP preload validation across responsive `srcset`/`picture` art direction and CDN-rewritten image URLs
 - integration tests that run Redis/BullMQ jobs in CI, not only local Docker smoke tests
-- production hardening around queue concurrency, retry policies, observability, and report retention
+- deeper production observability around worker timing, browser failures, and report retention cleanup

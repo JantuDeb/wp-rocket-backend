@@ -13,6 +13,15 @@ export type PerformanceSourceAttribution = {
   kind: "plugin" | "theme" | "wordpress-core" | "uploads" | "first-party" | "third-party" | "unknown";
   slug?: string;
   host?: string;
+  handle?: string;
+};
+
+export type PerformanceHandleMetadata = {
+  url?: string;
+  handle: string;
+  type?: string;
+  source_kind?: PerformanceSourceAttribution["kind"];
+  source_slug?: string;
 };
 
 export type PerformanceResource = {
@@ -33,11 +42,25 @@ export type PerformanceDomEvidence = {
   value?: number;
 };
 
+export type PerformanceLcpPreloadCandidate = {
+  url: string;
+  selector: string;
+  tag: string;
+  as: "image";
+  fetchpriority: "high";
+  source: PerformanceSourceAttribution;
+  already_preloaded: boolean;
+  current_loading?: string;
+  width?: number;
+  height?: number;
+};
+
 export type PerformanceIssue = {
   id: string;
   type:
     | "slow_ttfb"
     | "slow_lcp"
+    | "lcp_preload_candidate"
     | "high_tbt"
     | "layout_shift"
     | "render_blocking_resource"
@@ -51,6 +74,7 @@ export type PerformanceIssue = {
   recommendation: string;
   evidence: PerformanceResource[];
   dom_evidence?: PerformanceDomEvidence[];
+  preload_candidates?: PerformanceLcpPreloadCandidate[];
 };
 
 export type PerformanceSourceGroup = {
@@ -69,6 +93,7 @@ export type PerformanceReport = {
   issues: PerformanceIssue[];
   resources: PerformanceResource[];
   dom_evidence: PerformanceDomEvidence[];
+  lcp_preload_candidates: PerformanceLcpPreloadCandidate[];
   source_groups: PerformanceSourceGroup[];
 };
 

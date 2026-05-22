@@ -12,13 +12,16 @@ export class RedisJobStore implements JobStore {
   }
 
   async create<T>(kind: JobKind, input: unknown, result: T): Promise<StoredJob<T>> {
+    const now = Date.now();
     const job: StoredJob<T> = {
       id: createJobId(kind),
       kind,
       state: "pending",
       input,
       result,
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+      attempts: 1,
       completeAfterMs: Number.MAX_SAFE_INTEGER,
     };
 
@@ -37,6 +40,31 @@ export class RedisJobStore implements JobStore {
     return JSON.parse(payload) as StoredJob<T>;
   }
 
+  async list(options: { kind?: JobKind; limit?: number; offset?: number } = {}): Promise<StoredJob[]> {
+    const limit = options.limit ?? 100;
+    const offset = options.offset ?? 0;
+    const ids = await this.redis.zrevrange(this.indexKey(options.kind), offset, offset + Math.max(0, limit - 1));
+    const jobs = await Promise.all(ids.map((id) => this.get(id)));
+
+    return jobs.filter((job): job is StoredJob => Boolean(job));
+  }
+
+  async markPending<T = unknown>(id: string): Promise<StoredJob<T> | undefined> {
+    const job = await this.get<T>(id);
+
+    if (!job) {
+      return undefined;
+    }
+
+    job.state = "pending";
+    job.error = undefined;
+    job.updatedAt = Date.now();
+    job.attempts += 1;
+    await this.save(job);
+
+    return job;
+  }
+
   async complete<T>(id: string, result: T): Promise<StoredJob<T> | undefined> {
     const job = await this.get<T>(id);
 
@@ -47,6 +75,7 @@ export class RedisJobStore implements JobStore {
     job.state = "completed";
     job.result = result;
     job.error = undefined;
+    job.updatedAt = Date.now();
     await this.save(job);
 
     return job;
@@ -62,6 +91,7 @@ export class RedisJobStore implements JobStore {
     job.state = "failed";
     job.result = result;
     job.error = error;
+    job.updatedAt = Date.now();
     await this.save(job);
 
     return job;
@@ -72,10 +102,21 @@ export class RedisJobStore implements JobStore {
   }
 
   private async save<T>(job: StoredJob<T>): Promise<void> {
-    await this.redis.set(this.key(job.id), JSON.stringify(job), "EX", env.REDIS_JOB_TTL_SECONDS);
+    await this.redis
+      .multi()
+      .set(this.key(job.id), JSON.stringify(job), "EX", env.REDIS_JOB_TTL_SECONDS)
+      .zadd(this.indexKey(), job.createdAt, job.id)
+      .zadd(this.indexKey(job.kind), job.createdAt, job.id)
+      .expire(this.indexKey(), env.REDIS_JOB_TTL_SECONDS)
+      .expire(this.indexKey(job.kind), env.REDIS_JOB_TTL_SECONDS)
+      .exec();
   }
 
   private key(id: string): string {
     return `${this.keyPrefix}:${id}`;
+  }
+
+  private indexKey(kind?: JobKind): string {
+    return kind ? `${this.keyPrefix}:index:${kind}` : `${this.keyPrefix}:index`;
   }
 }

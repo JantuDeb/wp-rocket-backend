@@ -9,6 +9,12 @@ const envSchema = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   REDIS_JOB_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
   START_WORKERS: z.coerce.boolean().default(true),
+  QUEUE_ATTEMPTS: z.coerce.number().int().positive().default(2),
+  QUEUE_BACKOFF_MS: z.coerce.number().int().nonnegative().default(5000),
+  QUEUE_REMOVE_ON_COMPLETE_COUNT: z.coerce.number().int().positive().default(1000),
+  QUEUE_REMOVE_ON_COMPLETE_AGE_SECONDS: z.coerce.number().int().positive().default(3600),
+  QUEUE_REMOVE_ON_FAIL_AGE_SECONDS: z.coerce.number().int().positive().default(86400),
+  WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
   CPCSS_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   CPCSS_FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   CPCSS_MAX_CSS_BYTES: z.coerce.number().int().positive().default(2_000_000),
@@ -30,6 +36,7 @@ const envSchema = z.object({
   PERFORMANCE_DESKTOP_HEIGHT: z.coerce.number().int().positive().default(900),
   PERFORMANCE_ALLOW_PRIVATE_NETWORKS: z.coerce.boolean().default(false),
   PERFORMANCE_CHROMIUM_EXECUTABLE: z.string().optional(),
+  ADMIN_TOKEN: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

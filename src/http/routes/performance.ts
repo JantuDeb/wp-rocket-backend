@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { env } from "../../config/env.js";
-import type { PerformanceJobResult } from "../../contracts/performance.js";
+import type { PerformanceHandleMetadata, PerformanceJobResult, PerformanceSourceAttribution } from "../../contracts/performance.js";
 import type { JobProducer } from "../../queues/producers.js";
 import { auditPerformance, fakePerformanceMetrics, fakePerformanceReport } from "../../services/lighthouse/audit.js";
 import type { JobStore } from "../../storage/job-store.js";
@@ -108,6 +108,7 @@ export async function runPerformanceJob(
     const report = await auditPerformance({
       url: requireString(body.url, "url"),
       jobId,
+      handles: readHandleMetadata(body),
     });
 
     await store.complete<PerformanceJobResult>(jobId, {
@@ -144,6 +145,56 @@ function requireString(value: unknown, field: string): string {
   }
 
   return value;
+}
+
+function readHandleMetadata(body: Record<string, unknown>): PerformanceHandleMetadata[] {
+  const raw = body.handles ?? body.resource_handles ?? body.wp_handles;
+  const items = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object"
+      ? Object.values(raw)
+      : [];
+
+  return items
+    .map((item) => normalizeHandleMetadata(item))
+    .filter((item): item is PerformanceHandleMetadata => Boolean(item));
+}
+
+function normalizeHandleMetadata(value: unknown): PerformanceHandleMetadata | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const item = value as Record<string, unknown>;
+  const handle = typeof item.handle === "string" ? item.handle.trim() : "";
+
+  if (!handle) {
+    return undefined;
+  }
+
+  return {
+    handle,
+    url: typeof item.url === "string" ? item.url : undefined,
+    type: typeof item.type === "string" ? item.type : undefined,
+    source_kind: readSourceKind(item.source_kind),
+    source_slug: typeof item.source_slug === "string" ? item.source_slug : undefined,
+  };
+}
+
+function readSourceKind(value: unknown): PerformanceSourceAttribution["kind"] | undefined {
+  const validKinds = new Set<PerformanceSourceAttribution["kind"]>([
+    "plugin",
+    "theme",
+    "wordpress-core",
+    "uploads",
+    "first-party",
+    "third-party",
+    "unknown",
+  ]);
+
+  return typeof value === "string" && validKinds.has(value as PerformanceSourceAttribution["kind"])
+    ? value as PerformanceSourceAttribution["kind"]
+    : undefined;
 }
 
 function performanceResponse(result: PerformanceJobResult): Omit<PerformanceJobResult, "report"> {
