@@ -34,6 +34,22 @@ Redis mode persists job results and performance reports for `REDIS_JOB_TTL_SECON
 
 BullMQ attempts, backoff, completed/failed job retention, and worker concurrency are configurable through environment variables. Redis job indexes prune expired job IDs when lists are read so dashboard views do not retain references after payload TTL expiry.
 
+Postgres-backed SaaS persistence is available with `TENANT_STORE_DRIVER=postgres` and stores accounts, sites, API key hashes, and request usage. `SAAS_AUTH_REQUIRED=true` requires a valid API key for WP Rocket-compatible SaaS endpoints. Keys may be passed as `Authorization: Bearer`, `x-api-key`, or WP Rocket-style `credentials[wpr_key]`.
+
+`docker-compose.yml` starts Redis, Postgres, and the backend for local SaaS mode. `docker-compose.prod.yml` provides a production-oriented Redis/Postgres/backend stack with persistent volumes, required `ADMIN_TOKEN`, required `API_KEY_PEPPER`, and required `POSTGRES_PASSWORD`.
+
+## Account and Site APIs
+
+The backend now exposes the account foundation needed by a hosted service and connector plugin:
+
+- `POST /account/signup` creates or reuses an account, registers a site, and returns a one-time site-scoped API key.
+- `GET /account/me` returns the authenticated account, site, and API key metadata.
+- `GET /account/sites` lists sites for the authenticated account.
+- `POST /account/sites` registers another site for the authenticated account.
+- `POST /account/api-keys` creates another API key for the authenticated account.
+
+Site-scoped keys reject jobs for unrelated domains when SaaS auth is required, while preserving compatibility with WP Rocket's existing credentials payload.
+
 ## Browser-Backed Optimizations
 
 Critical CSS generation uses local Chromium through Penthouse.
@@ -102,6 +118,7 @@ The suite covers:
 - admin job/report listing, filtering, queue health, retry/cancel endpoints, and the dashboard HTML shell
 - dashboard report history controls wired to the history API
 - opt-in Redis/BullMQ queue processing through real Redis with `RUN_REDIS_TESTS=1`
+- opt-in Postgres account/site/API-key persistence with `RUN_POSTGRES_TESTS=1`
 - opt-in browser-backed LCP fixture coverage with `RUN_BROWSER_TESTS=1`
 - opt-in live WordPress performance smoke coverage against `LIVE_WP_URL`, defaulting to `https://cbsepath.com/`
 - additive report and report recommendation endpoints

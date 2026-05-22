@@ -26,16 +26,31 @@ ADMIN_TOKEN=local-secret npm run dev
 curl -H 'authorization: Bearer local-secret' http://localhost:8080/admin/jobs
 ```
 
-Memory-backed jobs are used by default. To run durable Redis/BullMQ jobs locally:
+Memory-backed jobs and an in-memory tenant store are used by default. To run durable Redis/BullMQ jobs plus persistent accounts/sites/API keys locally:
 
 ```sh
-QUEUE_DRIVER=redis REDIS_URL=redis://localhost:6379 npm run dev
+QUEUE_DRIVER=redis \
+REDIS_URL=redis://localhost:6379 \
+TENANT_STORE_DRIVER=postgres \
+DATABASE_URL=postgres://wp_rocket:wp_rocket@localhost:5432/wp_rocket_backend \
+SAAS_AUTH_REQUIRED=true \
+API_KEY_PEPPER=local-secret-pepper \
+npm run dev
 ```
 
-`docker-compose.yml` starts Redis and runs the backend in Redis queue mode.
+`docker-compose.yml` starts Redis, Postgres, and the backend in Redis/Postgres SaaS mode.
 
 ```sh
 docker compose up --build
+```
+
+For production-style Docker with persistent Redis/Postgres volumes and required secrets:
+
+```sh
+POSTGRES_PASSWORD='replace-me' \
+API_KEY_PEPPER='replace-me-too' \
+ADMIN_TOKEN='admin-secret' \
+docker compose -f docker-compose.prod.yml up --build -d
 ```
 
 Once the backend is healthy, these commands exercise the Redis/BullMQ path:
@@ -43,14 +58,19 @@ Once the backend is healthy, these commands exercise the Redis/BullMQ path:
 ```sh
 curl http://localhost:8080/health
 
+API_KEY=$(curl -s -X POST http://localhost:8080/account/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"local@example.com","site_url":"https://example.com"}' \
+  | node -pe "JSON.parse(fs.readFileSync(0, 'utf8')).api_key.key")
+
 PERF_ID=$(curl -s -X POST http://localhost:8080/performance/ \
   -H 'content-type: application/json' \
-  -d '{"url":"https://example.com","email":"local@example.com"}' \
+  -d "{\"url\":\"https://example.com\",\"email\":\"local@example.com\",\"credentials\":{\"wpr_key\":\"$API_KEY\"}}" \
   | node -pe "JSON.parse(fs.readFileSync(0, 'utf8')).uuid")
 
-curl "http://localhost:8080/performance/?uuid=$PERF_ID"
-curl "http://localhost:8080/reports/$PERF_ID"
-curl "http://localhost:8080/reports/$PERF_ID/recommendations"
+curl -H "x-api-key: $API_KEY" "http://localhost:8080/performance/?uuid=$PERF_ID"
+curl -H "x-api-key: $API_KEY" "http://localhost:8080/reports/$PERF_ID"
+curl -H "x-api-key: $API_KEY" "http://localhost:8080/reports/$PERF_ID/recommendations"
 ```
 
 Redis/BullMQ production controls:
@@ -65,6 +85,7 @@ Redis/BullMQ integration coverage is opt-in so the default test suite does not r
 
 ```sh
 RUN_REDIS_TESTS=1 REDIS_URL=redis://127.0.0.1:6379 npm test -- tests/contract/redis-queue.integration.test.ts
+RUN_POSTGRES_TESTS=1 DATABASE_URL=postgres://wp_rocket:wp_rocket@127.0.0.1:5432/wp_rocket_backend npm test -- tests/contract/postgres-tenant-store.integration.test.ts
 ```
 
 Browser-backed fixture and live WordPress smoke coverage are also opt-in:
@@ -93,6 +114,11 @@ define( 'WP_ROCKET_EXCLUSIONS_API_URL', 'http://localhost:8080/api/v2/' );
 The backend implements contract-compatible responses for:
 
 - `GET /health`
+- `POST /account/signup`
+- `GET /account/me`
+- `GET /account/sites`
+- `POST /account/sites`
+- `POST /account/api-keys`
 - `POST /rucss-job`
 - `GET /rucss-job`
 - `POST /api/job/`
@@ -123,6 +149,30 @@ Set `CPCSS_CHROMIUM_EXECUTABLE`, `RUCSS_CHROMIUM_EXECUTABLE`, and `PERFORMANCE_C
 ## Extended APIs
 
 The WP Rocket-compatible endpoints keep their original response shapes. Additional client UI can use `GET /reports/:jobId` after a `/performance/` job completes to fetch granular JSON with metrics, detected issues, resource URLs, source attribution, and fix recommendations. Resource attribution maps same-origin `/wp-content/plugins/{slug}/...` and `/wp-content/themes/{slug}/...` URLs to plugin/theme slugs when possible.
+
+## Account and API Key Flow
+
+Create an account, register a site, and get a site-scoped API key:
+
+```sh
+curl -X POST http://localhost:8080/account/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"owner@example.com","site_url":"https://example.com"}'
+```
+
+Use the returned `api_key.key` in either an `x-api-key` header, a bearer token, or WP Rocket-style credentials:
+
+```json
+{
+  "url": "https://example.com/",
+  "credentials": {
+    "wpr_email": "owner@example.com",
+    "wpr_key": "wprb_returned_key"
+  }
+}
+```
+
+When `SAAS_AUTH_REQUIRED=true`, WP Rocket-compatible SaaS endpoints require a valid key. Site-scoped keys can only submit jobs for their registered domain or subdomains. This gives the connector plugin two setup options: send `x-api-key` for custom calls, or inject the key into WP Rocket's existing `credentials[wpr_key]` field.
 
 Performance jobs may include optional WordPress handle metadata under `handles`, `resource_handles`, or `wp_handles`:
 

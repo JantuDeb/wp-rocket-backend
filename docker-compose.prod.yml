@@ -1,0 +1,78 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wp_rocket}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-wp_rocket_backend}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wp_rocket} -d ${POSTGRES_DB:-wp_rocket_backend}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      NODE_ENV: production
+      QUEUE_DRIVER: redis
+      REDIS_URL: redis://redis:6379
+      TENANT_STORE_DRIVER: postgres
+      DATABASE_URL: postgres://${POSTGRES_USER:-wp_rocket}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-wp_rocket_backend}
+      SAAS_AUTH_REQUIRED: "true"
+      API_KEY_PEPPER: ${API_KEY_PEPPER:?API_KEY_PEPPER is required}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN is required}
+      START_WORKERS: "true"
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      QUEUE_ATTEMPTS: ${QUEUE_ATTEMPTS:-2}
+      QUEUE_BACKOFF_MS: ${QUEUE_BACKOFF_MS:-5000}
+      REDIS_JOB_TTL_SECONDS: ${REDIS_JOB_TTL_SECONDS:-86400}
+      REPORT_RETENTION_DAYS: ${REPORT_RETENTION_DAYS:-30}
+      CPCSS_ALLOW_PRIVATE_NETWORKS: "false"
+      CPCSS_CHROMIUM_EXECUTABLE: /usr/bin/chromium
+      RUCSS_ALLOW_PRIVATE_NETWORKS: "false"
+      RUCSS_CHROMIUM_EXECUTABLE: /usr/bin/chromium
+      PERFORMANCE_ALLOW_PRIVATE_NETWORKS: "false"
+      PERFORMANCE_CHROMIUM_EXECUTABLE: /usr/bin/chromium
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+
+volumes:
+  redis-data:
+  postgres-data:

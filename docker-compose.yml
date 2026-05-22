@@ -9,10 +9,28 @@ services:
     ports:
       - "6379:6379"
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: wp_rocket
+      POSTGRES_PASSWORD: wp_rocket
+      POSTGRES_DB: wp_rocket_backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wp_rocket -d wp_rocket_backend"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   backend:
     build: .
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     environment:
       HOST: 0.0.0.0
@@ -20,6 +38,10 @@ services:
       JOB_COMPLETE_AFTER_MS: 1000
       QUEUE_DRIVER: redis
       REDIS_URL: redis://redis:6379
+      TENANT_STORE_DRIVER: postgres
+      DATABASE_URL: postgres://wp_rocket:wp_rocket@postgres:5432/wp_rocket_backend
+      SAAS_AUTH_REQUIRED: "true"
+      API_KEY_PEPPER: change-this-in-production
       START_WORKERS: "true"
       CPCSS_ALLOW_PRIVATE_NETWORKS: "true"
       CPCSS_CHROMIUM_EXECUTABLE: /usr/bin/chromium
@@ -61,3 +83,6 @@ services:
         "tests/contract/browser-lcp.fixture.test.ts",
         "tests/contract/live-wordpress-performance.test.ts",
       ]
+
+volumes:
+  postgres-data:
