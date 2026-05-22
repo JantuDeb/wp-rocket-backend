@@ -109,6 +109,29 @@ define( 'WP_ROCKET_CPCSS_API_URL', 'http://localhost:8080/api/job/' );
 define( 'WP_ROCKET_EXCLUSIONS_API_URL', 'http://localhost:8080/api/v2/' );
 ```
 
+## Existing WP Rocket Connector
+
+The `wordpress-connector/` plugin lets customers keep their existing WP Rocket install and point SaaS-backed features at this backend.
+
+Build the connector zip:
+
+```sh
+npm run package:connector
+```
+
+Install flow:
+
+1. Upload and activate `dist/wp-rocket-backend-connector.zip`.
+2. In WordPress, open Settings > WP Rocket Backend.
+3. Enter the backend endpoint, account email, and site URL.
+4. Click Create or Connect Account to call `/account/signup` and save the returned API key.
+5. Click Test Connection to call `/account/me`.
+6. Copy `wordpress-connector/mu-plugin/wp-rocket-backend-loader.php` to `wp-content/mu-plugins/wp-rocket-backend-loader.php`.
+
+The MU loader is recommended because WP Rocket endpoint constants must be defined before WP Rocket initializes. The normal connector plugin also defines constants immediately when it loads, but plugin activation order can vary on existing sites.
+
+The connector injects the saved API key into backend-bound WP HTTP requests as both `x-api-key` and WP Rocket-compatible `credentials[wpr_key]`.
+
 ## Current Scope
 
 The backend implements contract-compatible responses for:

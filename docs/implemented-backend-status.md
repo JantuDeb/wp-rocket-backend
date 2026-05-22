@@ -50,6 +50,19 @@ The backend now exposes the account foundation needed by a hosted service and co
 
 Site-scoped keys reject jobs for unrelated domains when SaaS auth is required, while preserving compatibility with WP Rocket's existing credentials payload.
 
+## Existing WP Rocket Connector
+
+The `wordpress-connector/` plugin provides the first customer integration path for sites that already run WP Rocket:
+
+- Settings page under Settings > WP Rocket Backend.
+- Backend endpoint, account email, site URL, API key, and connection status option storage.
+- Create/connect action calling `POST /account/signup`.
+- Connection test calling `GET /account/me`.
+- Immediate endpoint constant definitions for `WP_ROCKET_SAAS_API_URL`, `WP_ROCKET_CPCSS_API_URL`, and `WP_ROCKET_EXCLUSIONS_API_URL`.
+- `http_request_args` injection of the saved API key as `x-api-key` and `credentials[wpr_key]` for backend-bound WP Rocket requests.
+- MU loader at `wordpress-connector/mu-plugin/wp-rocket-backend-loader.php` for reliable early endpoint constant definitions.
+- Zip packaging through `npm run package:connector`.
+
 ## Browser-Backed Optimizations
 
 Critical CSS generation uses local Chromium through Penthouse.
