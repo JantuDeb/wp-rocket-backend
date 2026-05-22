@@ -40,3 +40,24 @@ services:
       retries: 12
     ports:
       - "8080:8080"
+
+  browser-tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    environment:
+      NODE_ENV: development
+      RUN_BROWSER_TESTS: "1"
+      RUN_LIVE_WP_TESTS: "1"
+      LIVE_WP_URL: https://cbsepath.com/
+      PERFORMANCE_ALLOW_PRIVATE_NETWORKS: "true"
+      PERFORMANCE_CHROMIUM_EXECUTABLE: /usr/bin/chromium
+    command:
+      [
+        "npm",
+        "test",
+        "--",
+        "tests/contract/browser-lcp.fixture.test.ts",
+        "tests/contract/live-wordpress-performance.test.ts",
+      ]

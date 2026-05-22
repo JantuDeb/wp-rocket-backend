@@ -74,6 +74,12 @@ RUN_BROWSER_TESTS=1 PERFORMANCE_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm test -
 RUN_LIVE_WP_TESTS=1 LIVE_WP_URL=https://cbsepath.com/ PERFORMANCE_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm test -- tests/contract/live-wordpress-performance.test.ts
 ```
 
+To run those browser tests in Docker with Chromium installed:
+
+```sh
+docker compose --profile test run --rm browser-tests
+```
+
 ## WordPress Constants
 
 ```php
